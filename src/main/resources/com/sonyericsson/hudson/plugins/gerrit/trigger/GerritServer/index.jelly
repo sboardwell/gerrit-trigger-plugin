@@ -37,19 +37,17 @@
                                     checked="${it.noConnectionOnStartup}"
                                     default="false"/>
                     </f:entry>
+
+                    <!-- SSH Connection Settings - Always Required -->
+                    <div class="jenkins-form-description" style="margin-bottom: 15px;">
+                        <strong>SSH Connection (Always Required):</strong> SSH credentials are required for sending
+                        build results back to Gerrit using 'gerrit review' commands, regardless of how events are received.
+                    </div>
                     <f:entry title="${%Hostname}"
                              help="/plugin/gerrit-trigger/help-GerritHostname.html">
                         <f:textbox name="gerritHostName"
                                    value="${it.config.gerritHostName}"
                                    default="${com.sonyericsson.hudson.plugins.gerrit.gerritevents.GerritDefaultValues.DEFAULT_GERRIT_HOSTNAME}"/>
-                    </f:entry>
-                    <f:entry title="${%Frontend URL}"
-                             help="/plugin/gerrit-trigger/help-GerritFrontendUrl.html">
-                        <f:textbox name="gerritFrontEndUrl"
-                                   value="${it.config.gerritFrontEndUrl}"
-                                   default="${com.sonyericsson.hudson.plugins.gerrit.gerritevents.GerritDefaultValues.DEFAULT_GERRIT_FRONT_END_URL}"
-                                   checkUrl="${rootURL}/${serverURL}/urlCheck"
-                                   checkDependsOn=""/>
                     </f:entry>
                     <f:entry title="${%SSH Port}"
                              help="/plugin/gerrit-trigger/help-GerritSshPort.html">
@@ -89,6 +87,93 @@
                                     value="${it.config.gerritAuthKeyFileSecretPassword}"
                                     default="${com.sonyericsson.hudson.plugins.gerrit.gerritevents.GerritDefaultValues.DEFAULT_GERRIT_AUTH_KEY_FILE_PASSWORD}"/>
                     </f:entry>
+                    <f:entry title="${%Frontend URL}"
+                             help="/plugin/gerrit-trigger/help-GerritFrontendUrl.html">
+                        <f:textbox name="gerritFrontEndUrl"
+                                   value="${it.config.gerritFrontEndUrl}"
+                                   default="${com.sonyericsson.hudson.plugins.gerrit.gerritevents.GerritDefaultValues.DEFAULT_GERRIT_FRONT_END_URL}"
+                                   checkUrl="${rootURL}/${serverURL}/urlCheck"
+                                   checkDependsOn=""/>
+                    </f:entry>
+                    <f:validateButton title="${%Test Connection}"
+                                      progress="${%Testing...}"
+                                      method="testConnection"
+                                      with="gerritHostName,gerritSshPort,gerritProxy,gerritUserName,gerritAuthKeyFile,gerritAuthKeyFilePassword"/>
+
+                    <!-- Event Reception Method Selection -->
+                    <div class="jenkins-form-description" style="margin-top: 20px; margin-bottom: 15px;">
+                        <strong>Event Reception Method:</strong> Choose how Jenkins should receive events from Gerrit.
+                    </div>
+                    <f:radioBlock name="connectionType"
+                                  value="SSH"
+                                  title="${%Receive events via SSH stream-events}"
+                                  checked="${it.config.connectionType.name() == 'SSH'}"
+                                  help="/plugin/gerrit-trigger/help-ConnectionTypeSSH.html">
+                        <f:block>
+                            <div class="jenkins-form-description">
+                                Events will be received through SSH stream-events command.
+                                This is the traditional method.
+                            </div>
+                        </f:block>
+                    </f:radioBlock>
+
+                    <!-- Webhook Event Reception -->
+                    <f:radioBlock name="connectionType"
+                                  value="WEBHOOK"
+                                  title="${%Receive events via Webhook}"
+                                  checked="${it.config.connectionType.name() == 'WEBHOOK'}"
+                                  help="/plugin/gerrit-trigger/help-ConnectionTypeWebhook.html">
+                        <f:block>
+                            <div class="jenkins-form-description">
+                                Events will be received via HTTP POST webhooks from Gerrit.
+                                SSH connection is still used for sending build results.
+                            </div>
+                            <div class="jenkins-form-item">
+                                <div class="jenkins-form-description">
+                                    <strong>Webhook URL:</strong> <code>${rootURL}/gerrit-webhook</code>
+                                </div>
+                            </div>
+                        </f:block>
+                        <f:entry title="${%Log Webhook Requests for debugging)}"
+                                 help="/plugin/gerrit-trigger/help-WebhookLogRequests.html">
+                            <f:checkbox name="logWebhookRequests"
+                                        checked="${it.config.webhookConfig != null and it.config.webhookConfig.logWebhookRequests}"
+                                        default="false"/>
+                        </f:entry>
+                        <f:optionalBlock name="webhookConfig"
+                                         title="${%Enable Webhook Authentication}"
+                                         checked="${it.config.webhookConfig != null and it.config.webhookConfig.enabled}"
+                                         help="/plugin/gerrit-trigger/help-WebhookConfig.html">
+                            <f:entry title="${%Webhook Secret Token}"
+                                     help="/plugin/gerrit-trigger/help-WebhookSecret.html">
+                                <f:password name="webhookSecret"
+                                            value="${it.config.webhookConfig != null ? it.config.webhookConfig.webhookSecret : ''}"/>
+                            </f:entry>
+                            <f:entry title="${%Require Secret Token}"
+                                     help="/plugin/gerrit-trigger/help-WebhookRequireSecret.html">
+                                <f:checkbox name="requireSecretToken"
+                                            checked="${it.config.webhookConfig != null and it.config.webhookConfig.requireSecretToken}"
+                                            default="false"/>
+                            </f:entry>
+                            <f:entry title="${%HMAC Secret for signature validation}"
+                                     help="/plugin/gerrit-trigger/help-WebhookHmacSecret.html">
+                                <f:password name="hmacSecret"
+                                            value="${it.config.webhookConfig != null ? it.config.webhookConfig.hmacSecret : ''}"/>
+                            </f:entry>
+                            <f:entry title="${%Require HMAC Signature}"
+                                     help="/plugin/gerrit-trigger/help-WebhookRequireHmac.html">
+                                <f:checkbox name="requireHmacSignature"
+                                            checked="${it.config.webhookConfig != null and it.config.webhookConfig.requireHmacSignature}"
+                                            default="false"/>
+                            </f:entry>
+                            <f:entry title="${%Allowed IP Addresses comma-separated)}"
+                                     help="/plugin/gerrit-trigger/help-WebhookAllowedIps.html">
+                                <f:textbox name="allowedIpAddresses"
+                                           value="${it.config.webhookConfig != null ? it.config.webhookConfig.allowedIpAddressesAsString : ''}"/>
+                            </f:entry>
+                        </f:optionalBlock>
+                    </f:radioBlock>
+
                     <f:optionalBlock name="buildCurrentPatchesOnly"
                                      title="${%Build Current Patches Only}"
                                      help="/plugin/gerrit-trigger/help-GerritBuildCurrentPatchesOnly.html"
@@ -127,10 +212,6 @@
                                     checked="${it.config.voteSameTopic}"
                                     default="false"/>
                     </f:entry>
-                    <f:validateButton title="${%Test Connection}"
-                                      progress="${%Testing...}"
-                                      method="testConnection"
-                                      with="gerritHostName,gerritSshPort,gerritProxy,gerritUserName,gerritAuthKeyFile,gerritAuthKeyFilePassword"/>
                 </f:section>
                 <f:section title="${%Gerrit Reporting Values}" icon="symbol-list-outline plugin-ionicons-api">
                     <div class="gt-config__subsection">${%Verify}</div>
@@ -282,14 +363,14 @@
                                         checked="${it.config.enableProjectAutoCompletion}"
                                         default="${com.sonyericsson.gerrithudsontrigger.config.Config.DEFAULT_ENABLE_PROJECT_AUTO_COMPLETION}"/>
                         </f:entry>
-                        <f:entry title="${%Project list fetch delay} (seconds)">
+                        <f:entry title="${%Project list fetch delay} seconds">
                             <f:number name="projectListFetchDelay"
                                       value="${it.config.projectListFetchDelay}"
                                       default="${com.sonyericsson.gerrithudsontrigger.config.Config.DEFAULT_PROJECT_LIST_FETCH_DELAY}"
                                       clazz="number-required"
                                       min="0"/>
                         </f:entry>
-                        <f:entry title="${%Project list fetch interval} (seconds)">
+                        <f:entry title="${%Project list fetch interval} seconds">
                             <f:number name="projectListRefreshInterval"
                                       value="${it.config.projectListRefreshInterval}"
                                       default="${com.sonyericsson.gerrithudsontrigger.config.Config.DEFAULT_PROJECT_LIST_REFRESH_INTERVAL}"

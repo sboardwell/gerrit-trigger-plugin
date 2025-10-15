@@ -583,20 +583,41 @@ public class GerritServer implements Describable<GerritServer>, Action {
         checkPermission();
         if (!config.hasDefaultValues()) {
             if (gerritConnection == null) {
-                logger.debug("Starting Gerrit connection...");
+                // Determine connection type for event reception
+                boolean useWebhookForEvents = false;
+                if (config instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
+                    com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config configObj =
+                            (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)config;
+                    useWebhookForEvents = configObj.getConnectionType()
+                            == com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config.ConnectionType.WEBHOOK;
+                }
+
+                // Always establish SSH connection (needed for sending gerrit review commands)
+                logger.debug("Starting Gerrit SSH connection...");
                 gerritConnection = new GerritConnection(name, config);
+
                 if (config.isTriggerOnAllComments()) {
                     logger.info("Will trigger on all comments, even from the configured user.");
                 } else {
                     logger.info("Will skip comments added by " + config.getGerritUserName());
                     gerritEventManager.setIgnoreEMail(name, config.getGerritEMail());
                 }
-                gerritConnection.setHandler(gerritEventManager);
-                gerritConnection.addListener(gerritConnectionListener);
-                gerritConnection.addListener(projectListUpdater);
 
-                missedEventsPlaybackManager.checkIfEventsLogPluginSupported();
-                gerritConnection.addListener(missedEventsPlaybackManager);
+                if (useWebhookForEvents) {
+                    // Webhook mode: SSH connection for sending results, webhook for receiving events
+                    logger.info("Server " + name + " configured for webhook event reception "
+                            + "(SSH connection established for sending results)");
+                    // Do NOT add connection as event listener - events come via webhook instead
+                } else {
+                    // SSH mode: SSH connection for both receiving events and sending results
+                    logger.info("Server " + name + " configured for SSH event reception");
+                    gerritConnection.setHandler(gerritEventManager);
+                    gerritConnection.addListener(gerritConnectionListener);
+                    gerritConnection.addListener(projectListUpdater);
+
+                    missedEventsPlaybackManager.checkIfEventsLogPluginSupported();
+                    gerritConnection.addListener(missedEventsPlaybackManager);
+                }
 
                 gerritConnection.start();
             } else {

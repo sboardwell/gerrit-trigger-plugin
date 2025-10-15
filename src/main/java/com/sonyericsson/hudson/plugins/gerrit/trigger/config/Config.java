@@ -34,6 +34,7 @@ import com.sonymobile.tools.gerrit.gerritevents.watchdog.WatchTimeExceptionData;
 import com.sonymobile.tools.gerrit.gerritevents.watchdog.WatchTimeExceptionData.Time;
 import com.sonymobile.tools.gerrit.gerritevents.watchdog.WatchTimeExceptionData.TimeSpan;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.VerdictCategory;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.webhook.WebhookConfig;
 
 import hudson.util.Secret;
 import net.sf.json.JSONArray;
@@ -163,6 +164,21 @@ public class Config implements IGerritHudsonTriggerConfig {
      */
     public static final Notify DEFAULT_NOTIFICATION_LEVEL = Notify.ALL;
 
+    /**
+     * Connection type for Gerrit server - either SSH or Webhook.
+     */
+    public enum ConnectionType {
+        /** SSH connection using Gerrit stream-events. */
+        SSH,
+        /** Webhook HTTP connection. */
+        WEBHOOK
+    }
+
+    /**
+     * Default connection type.
+     */
+    public static final ConnectionType DEFAULT_CONNECTION_TYPE = ConnectionType.SSH;
+
     private String gerritHostName;
     private int gerritSshPort;
     private String gerritProxy;
@@ -217,6 +233,8 @@ public class Config implements IGerritHudsonTriggerConfig {
     private Notify notificationLevel;
     private BuildCancellationPolicy buildCurrentPatchesOnly;
     private boolean voteSameTopic;
+    private ConnectionType connectionType;
+    private WebhookConfig webhookConfig;
 
     /**
      * Constructor.
@@ -287,6 +305,24 @@ public class Config implements IGerritHudsonTriggerConfig {
         }
         watchdogTimeoutMinutes = config.getWatchdogTimeoutMinutes();
         watchTimeExceptionData = addWatchTimeExceptionData(config.getExceptionData());
+
+        // Copy webhook configuration if source is a Config instance
+        if (config instanceof Config) {
+            Config sourceConfig = (Config)config;
+            connectionType = sourceConfig.getConnectionType();
+            if (sourceConfig.getWebhookConfig() != null) {
+                webhookConfig = new WebhookConfig();
+                webhookConfig.setEnabled(sourceConfig.getWebhookConfig().isEnabled());
+                webhookConfig.setWebhookSecret(sourceConfig.getWebhookConfig().getWebhookSecret());
+                webhookConfig.setHmacSecret(sourceConfig.getWebhookConfig().getHmacSecret());
+                webhookConfig.setRequireSecretToken(sourceConfig.getWebhookConfig().isRequireSecretToken());
+                webhookConfig.setRequireHmacSignature(sourceConfig.getWebhookConfig().isRequireHmacSignature());
+                webhookConfig.setLogWebhookRequests(sourceConfig.getWebhookConfig().isLogWebhookRequests());
+                webhookConfig.setAllowedIpAddresses(sourceConfig.getWebhookConfig().getAllowedIpAddresses());
+            }
+        } else {
+            connectionType = DEFAULT_CONNECTION_TYPE;
+        }
     }
 
     @Override
@@ -316,6 +352,9 @@ public class Config implements IGerritHudsonTriggerConfig {
         }
 
         voteSameTopic = formData.optBoolean("voteSameTopic", false);
+
+        // Parse connection type and webhook configuration
+        parseConnectionTypeAndWebhook(formData);
 
         numberOfWorkerThreads = formData.optInt(
                 "numberOfReceivingWorkerThreads",
@@ -421,6 +460,60 @@ public class Config implements IGerritHudsonTriggerConfig {
         }
 
         replicationConfig = ReplicationConfig.createReplicationConfigFromJSON(formData);
+    }
+
+    /**
+     * Parses connection type and webhook configuration from form data.
+     * Extracts connection type selection and webhook settings.
+     *
+     * @param formData the JSON object with form data
+     */
+    private void parseConnectionTypeAndWebhook(JSONObject formData) {
+        // Parse connection type - look for the field directly (radioBlock submits the selected value)
+        String connTypeStr = formData.optString("connectionType", null);
+        if (connTypeStr != null && !connTypeStr.isEmpty()) {
+            try {
+                connectionType = ConnectionType.valueOf(connTypeStr);
+            } catch (IllegalArgumentException e) {
+                connectionType = DEFAULT_CONNECTION_TYPE;
+            }
+        } else {
+            connectionType = DEFAULT_CONNECTION_TYPE;
+        }
+
+        // If webhook mode is selected, ensure webhookConfig exists
+        if (connectionType == ConnectionType.WEBHOOK) {
+            if (webhookConfig == null) {
+                webhookConfig = new WebhookConfig(false);
+            }
+
+            // Parse logWebhookRequests (always present when webhook radio is selected)
+            webhookConfig.setLogWebhookRequests(formData.optBoolean("logWebhookRequests", false));
+
+            // Parse webhook authentication config if the optional block is checked
+            if (formData.has("webhookConfig")) {
+                JSONObject webhookData = formData.getJSONObject("webhookConfig");
+                webhookConfig.setEnabled(true);
+                if (webhookData.has("webhookSecret")) {
+                    webhookConfig.setWebhookSecret(Secret.fromString(webhookData.optString("webhookSecret", "")));
+                }
+                if (webhookData.has("hmacSecret")) {
+                    webhookConfig.setHmacSecret(Secret.fromString(webhookData.optString("hmacSecret", "")));
+                }
+                webhookConfig.setRequireSecretToken(webhookData.optBoolean("requireSecretToken", false));
+                webhookConfig.setRequireHmacSignature(webhookData.optBoolean("requireHmacSignature", false));
+                if (webhookData.has("allowedIpAddresses")) {
+                    String ipAddresses = webhookData.optString("allowedIpAddresses", "");
+                    webhookConfig.setAllowedIpAddressesFromString(ipAddresses);
+                }
+            } else {
+                // Webhook mode selected but authentication not enabled
+                webhookConfig.setEnabled(false);
+            }
+        } else {
+            // SSH mode - clear webhook config
+            webhookConfig = null;
+        }
     }
 
     /**
@@ -892,6 +985,45 @@ public class Config implements IGerritHudsonTriggerConfig {
                 + " The current implementation takes into account that 'Build Current Patches Only'"
                 + " with 'Abort new patch sets' and 'Abort patch sets with same topic' are <b>enabled</b>"
                 + " (see help for more).";
+    }
+
+    /**
+     * Gets the connection type for this Gerrit server.
+     *
+     * @return the connection type (SSH or WEBHOOK)
+     */
+    public ConnectionType getConnectionType() {
+        if (connectionType == null) {
+            connectionType = DEFAULT_CONNECTION_TYPE;
+        }
+        return connectionType;
+    }
+
+    /**
+     * Sets the connection type for this Gerrit server.
+     *
+     * @param connectionType the connection type to use
+     */
+    public void setConnectionType(ConnectionType connectionType) {
+        this.connectionType = connectionType;
+    }
+
+    /**
+     * Gets the webhook configuration.
+     *
+     * @return the webhook configuration, or null if not configured
+     */
+    public WebhookConfig getWebhookConfig() {
+        return webhookConfig;
+    }
+
+    /**
+     * Sets the webhook configuration.
+     *
+     * @param webhookConfig the webhook configuration to use
+     */
+    public void setWebhookConfig(WebhookConfig webhookConfig) {
+        this.webhookConfig = webhookConfig;
     }
 
     @Override
@@ -1463,6 +1595,11 @@ public class Config implements IGerritHudsonTriggerConfig {
             if (this.gerritBuildAbortedVerifiedValue == null) {
                 this.gerritBuildAbortedVerifiedValue = this.gerritBuildFailedVerifiedValue;
             }
+        }
+
+        // Initialize new fields for backward compatibility
+        if (this.connectionType == null) {
+            this.connectionType = DEFAULT_CONNECTION_TYPE;
         }
 
         return this;
