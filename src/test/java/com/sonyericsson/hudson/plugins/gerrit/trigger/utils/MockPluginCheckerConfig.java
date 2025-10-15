@@ -1,9 +1,11 @@
 package com.sonyericsson.hudson.plugins.gerrit.trigger.utils;
 
 import com.sonyericsson.hudson.plugins.gerrit.trigger.VerdictCategory;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.ReplicationConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.BuildCancellationPolicy;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.webhook.WebhookConfig;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonymobile.tools.gerrit.gerritevents.dto.rest.Notify;
 import com.sonymobile.tools.gerrit.gerritevents.ssh.Authentication;
@@ -364,5 +366,15 @@ public class MockPluginCheckerConfig implements IGerritHudsonTriggerConfig {
     @Override
     public boolean isVoteSameTopic() {
         return false;
+    }
+
+    @Override
+    public Config.ConnectionType getConnectionType() {
+        return Config.ConnectionType.SSH;
+    }
+
+    @Override
+    public WebhookConfig getWebhookConfig() {
+        return null;
     }
 }

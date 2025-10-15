@@ -24,6 +24,7 @@
 package com.sonyericsson.hudson.plugins.gerrit.trigger.config;
 
 import com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.data.BuildCancellationPolicy;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.webhook.WebhookConfig;
 import com.sonymobile.tools.gerrit.gerritevents.GerritConnectionConfig2;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonymobile.tools.gerrit.gerritevents.dto.rest.Notify;
@@ -351,4 +352,20 @@ public interface IGerritHudsonTriggerConfig extends GerritConnectionConfig2 {
       * @return the instance of {@link Secret}.
       */
      Secret getGerritAuthKeyFileSecretPassword();
+
+     /**
+      * Gets the connection type for this Gerrit server (SSH or WEBHOOK).
+      * Determines how events are received from Gerrit.
+      *
+      * @return the connection type
+      */
+     Config.ConnectionType getConnectionType();
+
+     /**
+      * Gets the webhook configuration for this Gerrit server.
+      * Only applicable when connection type is WEBHOOK.
+      *
+      * @return the webhook configuration, or null if not configured
+      */
+     WebhookConfig getWebhookConfig();
 }
