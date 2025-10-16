@@ -60,9 +60,6 @@ public class WebhookConfig implements Serializable {
     /** Whether to require secret token authentication */
     private boolean requireSecretToken = false;
 
-    /** Whether to log webhook requests for debugging */
-    private boolean logWebhookRequests = false;
-
     /**
      * Default constructor for data binding.
      */
@@ -253,25 +250,6 @@ public class WebhookConfig implements Serializable {
     }
 
     /**
-     * Gets whether webhook requests should be logged for debugging.
-     *
-     * @return true if webhook logging is enabled, false otherwise
-     */
-    public boolean isLogWebhookRequests() {
-        return logWebhookRequests;
-    }
-
-    /**
-     * Sets whether webhook requests should be logged for debugging.
-     *
-     * @param logWebhookRequests true to enable webhook logging, false otherwise
-     */
-    @DataBoundSetter
-    public void setLogWebhookRequests(boolean logWebhookRequests) {
-        this.logWebhookRequests = logWebhookRequests;
-    }
-
-    /**
      * Checks if webhook authentication is configured and properly set up.
      *
      * @return true if webhook authentication is properly configured
@@ -333,7 +311,6 @@ public class WebhookConfig implements Serializable {
                 + ", requireSecretToken=" + requireSecretToken
                 + ", requireHmacSignature=" + requireHmacSignature
                 + ", allowedIpCount=" + ipCount
-                + ", logWebhookRequests=" + logWebhookRequests
                 + '}';
     }
 }

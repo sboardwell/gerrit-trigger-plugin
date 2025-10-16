@@ -328,8 +328,17 @@ public class WebhookAuthenticator {
      * @return the webhook configuration, or null if not available
      */
     private WebhookConfig getWebhookConfig(GerritServer server) {
-        // TODO: This needs to be implemented when Config is extended with webhook support
-        // For now, return null which will disable authentication
+        if (server == null || server.getConfig() == null) {
+            return null;
+        }
+
+        // Check if config is a Config instance (not just the interface)
+        if (server.getConfig() instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
+            com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config config =
+                    (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)server.getConfig();
+            return config.getWebhookConfig();
+        }
+
         return null;
     }
 

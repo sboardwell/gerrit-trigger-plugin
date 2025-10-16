@@ -81,8 +81,10 @@ The webhook functionality integrates seamlessly with the existing plugin archite
 Add webhook configuration to your Gerrit server. The webhook URL format is:
 
 ```
-http://your-jenkins-server/gerrit-webhook
+http://your-jenkins-server/gerrit-webhook/
 ```
+
+**Note:** The trailing slash is **required**. Jenkins/Stapler will not route requests to `/gerrit-webhook` (without trailing slash). Always use `/gerrit-webhook/` with the trailing slash.
 
 #### Example Gerrit webhook configuration:
 

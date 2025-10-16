@@ -137,7 +137,7 @@
                         <f:entry title="${%Log Webhook Requests for debugging)}"
                                  help="/plugin/gerrit-trigger/help-WebhookLogRequests.html">
                             <f:checkbox name="logWebhookRequests"
-                                        checked="${it.config.webhookConfig != null and it.config.webhookConfig.logWebhookRequests}"
+                                        checked="${it.config.logWebhookRequests}"
                                         default="false"/>
                         </f:entry>
                         <f:optionalBlock name="webhookConfig"

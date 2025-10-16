@@ -603,17 +603,20 @@ public class GerritServer implements Describable<GerritServer>, Action {
                     gerritEventManager.setIgnoreEMail(name, config.getGerritEMail());
                 }
 
+                // Always add connection listener for health monitoring
+                gerritConnection.addListener(gerritConnectionListener);
+                gerritConnection.addListener(projectListUpdater);
+
                 if (useWebhookForEvents) {
                     // Webhook mode: SSH connection for sending results, webhook for receiving events
                     logger.info("Server " + name + " configured for webhook event reception "
                             + "(SSH connection established for sending results)");
-                    // Do NOT add connection as event listener - events come via webhook instead
+                    // Do NOT set event handler - events come via webhook instead
                 } else {
                     // SSH mode: SSH connection for both receiving events and sending results
                     logger.info("Server " + name + " configured for SSH event reception");
+                    // Set event handler to process and forward events
                     gerritConnection.setHandler(gerritEventManager);
-                    gerritConnection.addListener(gerritConnectionListener);
-                    gerritConnection.addListener(projectListUpdater);
 
                     missedEventsPlaybackManager.checkIfEventsLogPluginSupported();
                     gerritConnection.addListener(missedEventsPlaybackManager);
@@ -975,14 +978,36 @@ public class GerritServer implements Describable<GerritServer>, Action {
             }
             rename(newName);
         }
+
+        // Store old connection type to detect changes
+        Config.ConnectionType oldConnectionType = null;
+        if (config instanceof Config) {
+            oldConnectionType = ((Config)config).getConnectionType();
+        }
+
         noConnectionOnStartup = form.getBoolean("noConnectionOnStartup");
         config.setValues(form);
+
+        // Check if connection type changed
+        boolean connectionTypeChanged = false;
+        if (config instanceof Config && oldConnectionType != null) {
+            Config.ConnectionType newConnectionType = ((Config)config).getConnectionType();
+            connectionTypeChanged = !oldConnectionType.equals(newConnectionType);
+            if (connectionTypeChanged) {
+                logger.info("Connection type changed from {} to {}, restarting connection",
+                        oldConnectionType, newConnectionType);
+            }
+        }
 
         PluginImpl.save_();
 
         if (!started) {
             this.start();
         } else {
+            // Restart connection if connection type changed
+            if (connectionTypeChanged && isConnected()) {
+                restartConnection();
+            }
             if (missedEventsPlaybackManager != null) {
                 missedEventsPlaybackManager.checkIfEventsLogPluginSupported();
             }

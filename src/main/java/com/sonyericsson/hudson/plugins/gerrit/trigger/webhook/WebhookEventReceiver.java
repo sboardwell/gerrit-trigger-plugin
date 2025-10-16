@@ -31,36 +31,34 @@ import hudson.Extension;
 import hudson.model.UnprotectedRootAction;
 import hudson.security.ACL;
 import hudson.security.ACLContext;
-import hudson.security.csrf.CrumbExclusion;
 import java.io.IOException;
 import java.util.logging.Level;
 import java.util.logging.Logger;
-import javax.servlet.FilterChain;
-import javax.servlet.ServletException;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import org.apache.commons.io.IOUtils;
 
 import org.kohsuke.stapler.StaplerRequest;
 import org.kohsuke.stapler.StaplerResponse;
-import org.kohsuke.stapler.verb.POST;
 
 /**
  * REST endpoint for receiving webhook events from Gerrit.
  * Provides an alternative to SSH connections for receiving Gerrit events.
- * Extends CrumbExclusion to exempt webhook requests from CSRF protection,
- * since external Gerrit servers cannot provide Jenkins crumb tokens.
+ * CSRF protection is handled by WebhookCrumbExclusion (separate extension).
  * Security is enforced via WebhookAuthenticator (tokens, HMAC, IP filtering).
+ *
+ * This class must be SEPARATE from WebhookCrumbExclusion.
+ * Both classes have @Extension and are registered independently by Jenkins.
  *
  * @author Your Name &lt;your.email@domain.com&gt;
  */
 @Extension
-public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedRootAction {
+public class WebhookEventReceiver extends WebhookCrumbExclusion implements UnprotectedRootAction {
 
     private static final Logger LOGGER = Logger.getLogger(WebhookEventReceiver.class.getName());
 
-    private static final String URL_NAME = "gerrit-webhook";
-
+    /** The URL name for accessing the webhook endpoint. */
+    public static final String URL_NAME = "gerrit-webhook";
 
     private final WebhookEventProcessor eventProcessor;
     private final WebhookAuthenticator authenticator;
@@ -89,44 +87,30 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
     }
 
     /**
-     * Exempts webhook requests from CSRF protection.
-     * This is required for external Gerrit servers to POST events without Jenkins crumb tokens.
-     *
-     * @param request the HTTP request
-     * @param response the HTTP response
-     * @param chain the filter chain
-     * @return true if this request should be exempted from CSRF checking
-     * @throws IOException if I/O error occurs
-     * @throws ServletException if servlet processing fails
-     */
-    @Override
-    public boolean process(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
-            throws IOException, ServletException {
-        String pathInfo = request.getPathInfo();
-
-        // Check if this is a request to the webhook endpoint
-        if (pathInfo != null && pathInfo.startsWith("/" + URL_NAME)) {
-            // Process without CSRF protection
-            chain.doFilter(request, response);
-            return true;
-        }
-
-        // Not a webhook request, continue with normal CSRF checking
-        return false;
-    }
-
-    /**
      * Handles webhook POST requests from Gerrit.
-     * URL pattern: /gerrit-webhook
+     * URL pattern: /gerrit-webhook/ (with trailing slash)
+     * This is called by Stapler when a request arrives at the root of our action.
+     * Following BitbucketHookReceiver pattern - single parameter.
      *
      * @param req the HTTP request
-     * @param rsp the HTTP response
-     * @throws ServletException if servlet processing fails
      * @throws IOException if I/O error occurs
      */
-    @POST
-    public void doIndex(StaplerRequest req, StaplerResponse rsp)
-            throws ServletException, IOException {
+    public void doIndex(StaplerRequest req) throws IOException {
+        LOGGER.log(Level.INFO, "=== doIndex() CALLED === method: {0}, from: {1}",
+            new Object[]{req.getMethod(), req.getRemoteAddr()});
+
+        // Get response from Stapler context
+        StaplerResponse rsp = org.kohsuke.stapler.Stapler.getCurrentResponse();
+
+        // Only handle POST requests
+        if (!"POST".equals(req.getMethod())) {
+            LOGGER.log(Level.WARNING, "Rejecting non-POST request: {0}", req.getMethod());
+            if (rsp != null) {
+                rsp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
+                    "Only POST method is supported for webhook events");
+            }
+            return;
+        }
 
         handleWebhookEvent(req, rsp);
     }
@@ -140,7 +124,7 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
      */
     private void handleWebhookEvent(HttpServletRequest req, HttpServletResponse rsp)
             throws IOException {
-
+        LOGGER.log(Level.INFO, "handleWebhookEvent() - processing request from {0}", req.getRemoteAddr());
         try {
             // Read the payload first
             String payload = IOUtils.toString(req.getReader());
@@ -150,14 +134,28 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
                 return;
             }
 
-            LOGGER.log(Level.FINE, "Received webhook payload: {0}", payload);
-
             // Identify the server from the payload
             GerritServer server = identifyServerFromPayload(payload);
             if (server == null) {
                 sendError(rsp, HttpServletResponse.SC_NOT_FOUND,
                          "No matching Gerrit server configured for webhook");
                 return;
+            }
+
+            // Check if webhook request logging is enabled
+            boolean logRequests = false;
+            if (server.getConfig() instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
+                com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config config =
+                        (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)server.getConfig();
+                logRequests = config.isLogWebhookRequests();
+            }
+
+            if (logRequests) {
+                LOGGER.log(Level.INFO, "Webhook request received for server {0}", server.getName());
+                LOGGER.log(Level.INFO, "Webhook payload: {0}", payload);
+                LOGGER.log(Level.INFO, "Request headers: {0}", formatHeaders(req));
+            } else {
+                LOGGER.log(Level.FINE, "Received webhook payload: {0}", payload);
             }
 
             // Check if webhooks are enabled for this server
@@ -169,6 +167,9 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
 
             // Authenticate the request
             if (!authenticator.authenticate(req, server)) {
+                if (logRequests) {
+                    LOGGER.log(Level.WARNING, "Webhook authentication failed for server {0}", server.getName());
+                }
                 sendError(rsp, HttpServletResponse.SC_UNAUTHORIZED,
                          "Webhook authentication failed");
                 return;
@@ -177,6 +178,9 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
             // Process the webhook payload
             GerritEvent event = eventProcessor.processWebhookPayload(payload, server);
             if (event == null) {
+                if (logRequests) {
+                    LOGGER.log(Level.WARNING, "Unable to process webhook payload for server {0}", server.getName());
+                }
                 sendError(rsp, HttpServletResponse.SC_BAD_REQUEST,
                          "Unable to process webhook payload");
                 return;
@@ -190,8 +194,13 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
             rsp.setContentType("application/json");
             rsp.getWriter().write("{\"status\":\"success\",\"message\":\"Event processed successfully\"}");
 
-            LOGGER.log(Level.INFO, "Successfully processed webhook event {0} for server {1}",
-                      new Object[]{event.getClass().getSimpleName(), server.getName()});
+            if (logRequests) {
+                LOGGER.log(Level.INFO, "Successfully processed webhook event {0} for server {1}",
+                          new Object[]{event.getClass().getSimpleName(), server.getName()});
+            } else {
+                LOGGER.log(Level.FINE, "Successfully processed webhook event {0} for server {1}",
+                          new Object[]{event.getClass().getSimpleName(), server.getName()});
+            }
 
         } catch (JsonSyntaxException e) {
             LOGGER.log(Level.WARNING, "Invalid JSON in webhook payload", e);
@@ -339,23 +348,14 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
             return false;
         }
 
-        // Check if webhook config exists and is enabled
-        WebhookConfig webhookConfig = config.getWebhookConfig();
-        if (webhookConfig == null) {
-            LOGGER.log(Level.WARNING,
-                      "Server {0} is in webhook mode but webhook configuration is missing",
-                      server.getName());
-            return false;
+        // Webhook mode is enabled - webhookConfig is only required for authentication
+        // If webhookConfig is null, it means webhook mode without authentication, which is valid
+        String authStatus = "disabled";
+        if (config.getWebhookConfig() != null) {
+            authStatus = "enabled";
         }
-
-        if (!webhookConfig.isEnabled()) {
-            LOGGER.log(Level.WARNING,
-                      "Server {0} webhook configuration exists but is disabled",
-                      server.getName());
-            return false;
-        }
-
-        LOGGER.log(Level.FINE, "Webhook validation passed for server {0}", server.getName());
+        LOGGER.log(Level.INFO, "Webhook validation passed for server {0} (authentication: {1})",
+                  new Object[]{server.getName(), authStatus});
         return true;
     }
 
@@ -391,5 +391,22 @@ public class WebhookEventReceiver extends CrumbExclusion implements UnprotectedR
             "{\"status\":\"error\",\"message\":\"%s\"}",
             message.replace("\"", "\\\"")
         ));
+    }
+
+    /**
+     * Formats HTTP request headers for logging.
+     *
+     * @param req the HTTP request
+     * @return formatted string of headers
+     */
+    private String formatHeaders(HttpServletRequest req) {
+        StringBuilder headers = new StringBuilder();
+        java.util.Enumeration<String> headerNames = req.getHeaderNames();
+        while (headerNames.hasMoreElements()) {
+            String headerName = headerNames.nextElement();
+            String headerValue = req.getHeader(headerName);
+            headers.append(headerName).append(": ").append(headerValue).append("; ");
+        }
+        return headers.toString();
     }
 }

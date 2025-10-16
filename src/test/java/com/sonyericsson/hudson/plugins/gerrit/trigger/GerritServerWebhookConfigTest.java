@@ -30,8 +30,6 @@ import static org.junit.Assert.assertNull;
 /**
  * Tests for Gerrit server webhook configuration.
  * Verifies that webhook configuration is correctly stored and processed alongside SSH configuration.
- *
- * @author Claude Code
  */
 public class GerritServerWebhookConfigTest {
 
@@ -58,14 +56,19 @@ public class GerritServerWebhookConfigTest {
         formData.put("gerritSshPort", DEFAULT_GERRIT_SSH_PORT);
         formData.put("gerritUserName", "jenkins");
         formData.put("gerritFrontEndUrl", "https://gerrit.example.com");
-        formData.put("connectionType", "WEBHOOK");
 
-        // Create webhook config
+        // Create connectionType object with nested fields (radioBlock structure)
+        JSONObject connectionTypeData = new JSONObject();
+        connectionTypeData.put("value", "WEBHOOK");
+        connectionTypeData.put("logWebhookRequests", false);
+
+        // Create webhook authentication config (nested inside connectionType)
         JSONObject webhookData = new JSONObject();
-        webhookData.put("enabled", true);
         webhookData.put("webhookSecret", "test-secret");
         webhookData.put("requireSecretToken", true);
-        formData.put("webhookConfig", webhookData);
+        connectionTypeData.put("webhookConfig", webhookData);
+
+        formData.put("connectionType", connectionTypeData);
 
         // Create and configure server
         Config config = new Config(formData);
@@ -100,7 +103,11 @@ public class GerritServerWebhookConfigTest {
         formData.put("gerritSshPort", DEFAULT_GERRIT_SSH_PORT);
         formData.put("gerritUserName", "jenkins-ssh");
         formData.put("gerritFrontEndUrl", "https://gerrit-ssh.example.com");
-        formData.put("connectionType", "SSH");
+
+        // Create connectionType object (radioBlock structure)
+        JSONObject connectionTypeData = new JSONObject();
+        connectionTypeData.put("value", "SSH");
+        formData.put("connectionType", connectionTypeData);
 
         // Create and configure server
         Config config = new Config(formData);
@@ -175,17 +182,22 @@ public class GerritServerWebhookConfigTest {
         // Create original config with webhook settings
         JSONObject formData = new JSONObject();
         formData.put("gerritHostName", "original.example.com");
-        formData.put("connectionType", "WEBHOOK");
 
+        // Create connectionType object with nested fields (radioBlock structure)
+        JSONObject connectionTypeData = new JSONObject();
+        connectionTypeData.put("value", "WEBHOOK");
+        connectionTypeData.put("logWebhookRequests", true);
+
+        // Create webhook authentication config (nested inside connectionType)
         JSONObject webhookData = new JSONObject();
-        webhookData.put("enabled", true);
         webhookData.put("webhookSecret", "original-secret");
         webhookData.put("requireSecretToken", true);
         webhookData.put("hmacSecret", "original-hmac");
         webhookData.put("requireHmacSignature", true);
-        webhookData.put("logWebhookRequests", true);
         webhookData.put("allowedIpAddresses", "192.168.1.0/24,10.0.0.1");
-        formData.put("webhookConfig", webhookData);
+        connectionTypeData.put("webhookConfig", webhookData);
+
+        formData.put("connectionType", connectionTypeData);
 
         Config originalConfig = new Config(formData);
 
@@ -204,7 +216,7 @@ public class GerritServerWebhookConfigTest {
         assertEquals("Require secret token should be copied", true, copiedWebhookConfig.isRequireSecretToken());
         assertEquals("Require HMAC signature should be copied", true,
                     copiedWebhookConfig.isRequireHmacSignature());
-        assertEquals("Log requests should be copied", true, copiedWebhookConfig.isLogWebhookRequests());
+        assertEquals("Log requests should be copied", true, copiedConfig.isLogWebhookRequests());
 
         // Verify it's a deep copy (not the same object)
         assertNotNull("Original webhook config should exist", originalConfig.getWebhookConfig());

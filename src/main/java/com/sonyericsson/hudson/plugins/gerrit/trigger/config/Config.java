@@ -44,6 +44,8 @@ import org.apache.http.auth.Credentials;
 import org.apache.http.auth.UsernamePasswordCredentials;
 import org.kohsuke.stapler.DataBoundConstructor;
 import org.kohsuke.stapler.StaplerRequest;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.File;
 import java.util.Calendar;
@@ -68,6 +70,8 @@ import static com.sonymobile.tools.gerrit.gerritevents.GerritDefaultValues.DEFAU
  * @author Robert Sandell &lt;robert.sandell@sonyericsson.com&gt;
  */
 public class Config implements IGerritHudsonTriggerConfig {
+
+    private static final Logger logger = LoggerFactory.getLogger(Config.class);
 
     /**
      * Default verified vote to Gerrit when a build is started.
@@ -235,6 +239,7 @@ public class Config implements IGerritHudsonTriggerConfig {
     private boolean voteSameTopic;
     private ConnectionType connectionType;
     private WebhookConfig webhookConfig;
+    private boolean logWebhookRequests;
 
     /**
      * Constructor.
@@ -307,21 +312,21 @@ public class Config implements IGerritHudsonTriggerConfig {
         watchTimeExceptionData = addWatchTimeExceptionData(config.getExceptionData());
 
         // Copy webhook configuration if source is a Config instance
-        if (config instanceof Config) {
-            Config sourceConfig = (Config)config;
-            connectionType = sourceConfig.getConnectionType();
-            if (sourceConfig.getWebhookConfig() != null) {
-                webhookConfig = new WebhookConfig();
-                webhookConfig.setEnabled(sourceConfig.getWebhookConfig().isEnabled());
-                webhookConfig.setWebhookSecret(sourceConfig.getWebhookConfig().getWebhookSecret());
-                webhookConfig.setHmacSecret(sourceConfig.getWebhookConfig().getHmacSecret());
-                webhookConfig.setRequireSecretToken(sourceConfig.getWebhookConfig().isRequireSecretToken());
-                webhookConfig.setRequireHmacSignature(sourceConfig.getWebhookConfig().isRequireHmacSignature());
-                webhookConfig.setLogWebhookRequests(sourceConfig.getWebhookConfig().isLogWebhookRequests());
-                webhookConfig.setAllowedIpAddresses(sourceConfig.getWebhookConfig().getAllowedIpAddresses());
+        connectionType = config.getConnectionType();
+        if (connectionType == ConnectionType.WEBHOOK) {
+            logger.info("Copying webhook configuration: " + config.getWebhookConfig());
+            if (config instanceof Config) {
+                logWebhookRequests = ((Config)config).isLogWebhookRequests();
             }
-        } else {
-            connectionType = DEFAULT_CONNECTION_TYPE;
+            if (config.getWebhookConfig() != null) {
+                webhookConfig = new WebhookConfig();
+                webhookConfig.setEnabled(config.getWebhookConfig().isEnabled());
+                webhookConfig.setWebhookSecret(config.getWebhookConfig().getWebhookSecret());
+                webhookConfig.setHmacSecret(config.getWebhookConfig().getHmacSecret());
+                webhookConfig.setRequireSecretToken(config.getWebhookConfig().isRequireSecretToken());
+                webhookConfig.setRequireHmacSignature(config.getWebhookConfig().isRequireHmacSignature());
+                webhookConfig.setAllowedIpAddresses(config.getWebhookConfig().getAllowedIpAddresses());
+            }
         }
     }
 
@@ -354,6 +359,7 @@ public class Config implements IGerritHudsonTriggerConfig {
         voteSameTopic = formData.optBoolean("voteSameTopic", false);
 
         // Parse connection type and webhook configuration
+        logger.info("Parsing WEBHOOK");
         parseConnectionTypeAndWebhook(formData);
 
         numberOfWorkerThreads = formData.optInt(
@@ -469,8 +475,19 @@ public class Config implements IGerritHudsonTriggerConfig {
      * @param formData the JSON object with form data
      */
     private void parseConnectionTypeAndWebhook(JSONObject formData) {
-        // Parse connection type - look for the field directly (radioBlock submits the selected value)
-        String connTypeStr = formData.optString("connectionType", null);
+        // radioBlock submits an object with "value" field containing the selected value
+        // and all fields from within that radio block
+        if (!formData.has("connectionType")) {
+            connectionType = DEFAULT_CONNECTION_TYPE;
+            logWebhookRequests = false;
+            webhookConfig = null;
+            return;
+        }
+
+        JSONObject connectionTypeData = formData.getJSONObject("connectionType");
+        String connTypeStr = connectionTypeData.optString("value", null);
+        logger.info("Parsing connection type: " + connTypeStr);
+
         if (connTypeStr != null && !connTypeStr.isEmpty()) {
             try {
                 connectionType = ConnectionType.valueOf(connTypeStr);
@@ -481,18 +498,17 @@ public class Config implements IGerritHudsonTriggerConfig {
             connectionType = DEFAULT_CONNECTION_TYPE;
         }
 
-        // If webhook mode is selected, ensure webhookConfig exists
+        // If webhook mode is selected, parse webhook settings
         if (connectionType == ConnectionType.WEBHOOK) {
-            if (webhookConfig == null) {
-                webhookConfig = new WebhookConfig(false);
-            }
-
-            // Parse logWebhookRequests (always present when webhook radio is selected)
-            webhookConfig.setLogWebhookRequests(formData.optBoolean("logWebhookRequests", false));
+            // Parse logWebhookRequests from the connectionType object
+            logWebhookRequests = connectionTypeData.optBoolean("logWebhookRequests", false);
+            logger.info("logWebhookRequests: " + logWebhookRequests);
 
             // Parse webhook authentication config if the optional block is checked
-            if (formData.has("webhookConfig")) {
-                JSONObject webhookData = formData.getJSONObject("webhookConfig");
+            if (connectionTypeData.has("webhookConfig")) {
+                JSONObject webhookData = connectionTypeData.getJSONObject("webhookConfig");
+                logger.info("Parsing webhook authentication config: " + webhookData);
+                webhookConfig = new WebhookConfig();
                 webhookConfig.setEnabled(true);
                 if (webhookData.has("webhookSecret")) {
                     webhookConfig.setWebhookSecret(Secret.fromString(webhookData.optString("webhookSecret", "")));
@@ -508,10 +524,12 @@ public class Config implements IGerritHudsonTriggerConfig {
                 }
             } else {
                 // Webhook mode selected but authentication not enabled
-                webhookConfig.setEnabled(false);
+                logger.info("Webhook mode without authentication");
+                webhookConfig = null;
             }
         } else {
             // SSH mode - clear webhook config
+            logWebhookRequests = false;
             webhookConfig = null;
         }
     }
@@ -1024,6 +1042,24 @@ public class Config implements IGerritHudsonTriggerConfig {
      */
     public void setWebhookConfig(WebhookConfig webhookConfig) {
         this.webhookConfig = webhookConfig;
+    }
+
+    /**
+     * Gets whether webhook requests should be logged for debugging.
+     *
+     * @return true if webhook logging is enabled, false otherwise
+     */
+    public boolean isLogWebhookRequests() {
+        return logWebhookRequests;
+    }
+
+    /**
+     * Sets whether webhook requests should be logged for debugging.
+     *
+     * @param logWebhookRequests true to enable webhook logging, false otherwise
+     */
+    public void setLogWebhookRequests(boolean logWebhookRequests) {
+        this.logWebhookRequests = logWebhookRequests;
     }
 
     @Override
