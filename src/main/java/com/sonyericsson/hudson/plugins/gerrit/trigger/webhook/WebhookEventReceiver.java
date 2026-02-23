@@ -96,15 +96,12 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
      * @throws IOException if I/O error occurs
      */
     public void doIndex(StaplerRequest req) throws IOException {
-        LOGGER.log(Level.INFO, "=== doIndex() CALLED === method: {0}, from: {1}",
-            new Object[]{req.getMethod(), req.getRemoteAddr()});
-
         // Get response from Stapler context
         StaplerResponse rsp = org.kohsuke.stapler.Stapler.getCurrentResponse();
 
         // Only handle POST requests
         if (!"POST".equals(req.getMethod())) {
-            LOGGER.log(Level.WARNING, "Rejecting non-POST request: {0}", req.getMethod());
+            LOGGER.log(Level.FINE, "Rejecting non-POST request: {0}", req.getMethod());
             if (rsp != null) {
                 rsp.sendError(HttpServletResponse.SC_METHOD_NOT_ALLOWED,
                     "Only POST method is supported for webhook events");
@@ -124,7 +121,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
      */
     private void handleWebhookEvent(HttpServletRequest req, HttpServletResponse rsp)
             throws IOException {
-        LOGGER.log(Level.INFO, "handleWebhookEvent() - processing request from {0}", req.getRemoteAddr());
+        LOGGER.log(Level.FINE, "handleWebhookEvent() - processing request from {0}", req.getRemoteAddr());
         try {
             // Read the payload first
             String payload = IOUtils.toString(req.getReader());
@@ -142,20 +139,10 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
                 return;
             }
 
-            // Check if webhook request logging is enabled
-            boolean logRequests = false;
-            if (server.getConfig() instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
-                com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config config =
-                        (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)server.getConfig();
-                logRequests = config.isLogWebhookRequests();
-            }
-
-            if (logRequests) {
-                LOGGER.log(Level.INFO, "Webhook request received for server {0}", server.getName());
-                LOGGER.log(Level.INFO, "Webhook payload: {0}", payload);
-                LOGGER.log(Level.INFO, "Request headers: {0}", formatHeaders(req));
-            } else {
-                LOGGER.log(Level.FINE, "Received webhook payload: {0}", payload);
+            if (LOGGER.isLoggable(Level.FINE)){
+                LOGGER.log(Level.FINE, "Webhook request received for server {0}", server.getName());
+                LOGGER.log(Level.FINE, "Webhook payload: {0}", payload);
+                LOGGER.log(Level.FINE, "Request headers: {0}", formatHeaders(req));
             }
 
             // Check if webhooks are enabled for this server
@@ -167,9 +154,6 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
 
             // Authenticate the request
             if (!authenticator.authenticate(req, server)) {
-                if (logRequests) {
-                    LOGGER.log(Level.WARNING, "Webhook authentication failed for server {0}", server.getName());
-                }
                 sendError(rsp, HttpServletResponse.SC_UNAUTHORIZED,
                          "Webhook authentication failed");
                 return;
@@ -178,9 +162,6 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
             // Process the webhook payload
             GerritEvent event = eventProcessor.processWebhookPayload(payload, server);
             if (event == null) {
-                if (logRequests) {
-                    LOGGER.log(Level.WARNING, "Unable to process webhook payload for server {0}", server.getName());
-                }
                 sendError(rsp, HttpServletResponse.SC_BAD_REQUEST,
                          "Unable to process webhook payload");
                 return;
@@ -194,10 +175,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
             rsp.setContentType("application/json");
             rsp.getWriter().write("{\"status\":\"success\",\"message\":\"Event processed successfully\"}");
 
-            if (logRequests) {
-                LOGGER.log(Level.INFO, "Successfully processed webhook event {0} for server {1}",
-                          new Object[]{event.getClass().getSimpleName(), server.getName()});
-            } else {
+            if (LOGGER.isLoggable(Level.FINE)){
                 LOGGER.log(Level.FINE, "Successfully processed webhook event {0} for server {1}",
                           new Object[]{event.getClass().getSimpleName(), server.getName()});
             }
@@ -275,7 +253,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
         }
 
         // Fall back to first webhook-enabled server
-        LOGGER.log(Level.INFO,
+        LOGGER.log(Level.WARNING,
                   "Multiple webhook servers configured but could not identify from payload. "
                   + "Using first webhook-enabled server: {0}",
                   webhookServers.get(0).getName());
@@ -302,7 +280,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
 
             return null;
         } catch (Exception e) {
-            LOGGER.log(Level.FINE, "Could not extract change URL from payload", e);
+            LOGGER.log(Level.SEVERE, "Could not extract change URL from payload", e);
             return null;
         }
     }
@@ -341,10 +319,12 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
         // Check if server is configured for webhook mode (not SSH)
         if (config.getConnectionType()
                 != com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config.ConnectionType.WEBHOOK) {
-            LOGGER.log(Level.WARNING,
-                      "Server {0} is not configured for webhook mode (current mode: {1}). "
-                      + "Webhooks can only be received when connection type is set to WEBHOOK.",
-                      new Object[]{server.getName(), config.getConnectionType()});
+            if (LOGGER.isLoggable(Level.FINE)){
+                LOGGER.log(Level.FINE,
+                        "Server {0} is not configured for webhook mode (current mode: {1}). "
+                                + "Webhooks can only be received when connection type is set to WEBHOOK.",
+                        new Object[]{server.getName(), config.getConnectionType()});
+            }
             return false;
         }
 
@@ -354,8 +334,10 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
         if (config.getWebhookConfig() != null) {
             authStatus = "enabled";
         }
-        LOGGER.log(Level.INFO, "Webhook validation passed for server {0} (authentication: {1})",
-                  new Object[]{server.getName(), authStatus});
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.log(Level.FINE, "Webhook validation passed for server {0} (authentication: {1})",
+                    new Object[]{server.getName(), authStatus});
+        }
         return true;
     }
 

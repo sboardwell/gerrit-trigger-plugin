@@ -102,7 +102,7 @@ public class WebhookAuthenticator {
             return true;
 
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error during webhook authentication", e);
+            LOGGER.log(Level.WARNING, "Error during webhook authentication", e);
             return false;
         }
     }
@@ -138,7 +138,6 @@ public class WebhookAuthenticator {
      * @return true if token is valid or no token is configured
      */
     private boolean isTokenValid(HttpServletRequest request, GerritServer server) {
-        // TODO: Get configured secret token from server config
         String configuredToken = getWebhookSecret(server);
 
         if (configuredToken == null || configuredToken.trim().isEmpty()) {
@@ -178,7 +177,6 @@ public class WebhookAuthenticator {
      * @return true if signature is valid or no signature validation is configured
      */
     private boolean isSignatureValid(HttpServletRequest request, GerritServer server) {
-        // TODO: Get configured HMAC secret from server config
         String hmacSecret = getWebhookHmacSecret(server);
 
         if (hmacSecret == null || hmacSecret.trim().isEmpty()) {
