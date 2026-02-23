@@ -139,7 +139,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
                 return;
             }
 
-            if (LOGGER.isLoggable(Level.FINE)){
+            if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "Webhook request received for server {0}", server.getName());
                 LOGGER.log(Level.FINE, "Webhook payload: {0}", payload);
                 LOGGER.log(Level.FINE, "Request headers: {0}", formatHeaders(req));
@@ -175,7 +175,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
             rsp.setContentType("application/json");
             rsp.getWriter().write("{\"status\":\"success\",\"message\":\"Event processed successfully\"}");
 
-            if (LOGGER.isLoggable(Level.FINE)){
+            if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE, "Successfully processed webhook event {0} for server {1}",
                           new Object[]{event.getClass().getSimpleName(), server.getName()});
             }
@@ -319,7 +319,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
         // Check if server is configured for webhook mode (not SSH)
         if (config.getConnectionType()
                 != com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config.ConnectionType.WEBHOOK) {
-            if (LOGGER.isLoggable(Level.FINE)){
+            if (LOGGER.isLoggable(Level.FINE)) {
                 LOGGER.log(Level.FINE,
                         "Server {0} is not configured for webhook mode (current mode: {1}). "
                                 + "Webhooks can only be received when connection type is set to WEBHOOK.",

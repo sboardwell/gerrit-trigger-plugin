@@ -41,7 +41,7 @@ import static org.mockito.Mockito.when;
  *
  * @author Your Name &lt;your.email@domain.com&gt;
  */
-@RunWith(MockitoJUnitRunner.class)
+@RunWith(MockitoJUnitRunner.Silent.class)
 public class WebhookAuthenticatorTest {
 
     private static final int TEST_ITERATIONS = 1000;
