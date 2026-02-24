@@ -609,8 +609,10 @@ public class GerritServer implements Describable<GerritServer>, Action {
 
                 if (useWebhookForEvents) {
                     // Webhook mode: SSH connection for sending results, webhook for receiving events
-                    logger.info("Server " + name + " configured for webhook event reception "
-                            + "(SSH connection established for sending results)");
+                    logger.info("Server {} configured for webhook event reception "
+                            + "(SSH connection established for sending results)", name);
+                    logger.info("Webhook endpoint: {}/gerrit-webhook/", Jenkins.get().getRootUrl());
+                    logger.info("Events will be received via HTTP POST, SSH connection for results only");
                     // Do NOT set event handler - events come via webhook instead
                 } else {
                     // SSH mode: SSH connection for both receiving events and sending results

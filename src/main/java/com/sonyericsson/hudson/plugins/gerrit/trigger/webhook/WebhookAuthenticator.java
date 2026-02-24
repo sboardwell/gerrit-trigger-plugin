@@ -82,19 +82,19 @@ public class WebhookAuthenticator {
 
             // 1. Check IP address whitelist (if configured)
             if (!isIpAllowed(request, server)) {
-                LOGGER.warning("Request from IP address " + request.getRemoteAddr() + " not allowed");
+                LOGGER.fine("Request from IP address " + request.getRemoteAddr() + " not allowed");
                 return false;
             }
 
             // 2. Check secret token (if configured)
             if (!isTokenValid(request, server)) {
-                LOGGER.warning("Invalid or missing webhook token");
+                LOGGER.fine("Invalid or missing webhook token");
                 return false;
             }
 
             // 3. Check HMAC signature (if configured)
             if (!isSignatureValid(request, server)) {
-                LOGGER.warning("Invalid HMAC signature");
+                LOGGER.fine("Invalid HMAC signature");
                 return false;
             }
 
