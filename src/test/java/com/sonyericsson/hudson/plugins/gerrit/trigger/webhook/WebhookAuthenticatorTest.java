@@ -63,13 +63,13 @@ public class WebhookAuthenticatorTest {
 
     @Test
     public void testAuthenticateWithNullRequest() {
-        boolean result = authenticator.authenticate(null, mockServer);
+        boolean result = authenticator.authenticate(null, mockServer, null);
         assertFalse("Should fail authentication with null request", result);
     }
 
     @Test
     public void testAuthenticateWithNullServer() {
-        boolean result = authenticator.authenticate(mockRequest, null);
+        boolean result = authenticator.authenticate(mockRequest, null, null);
         assertFalse("Should fail authentication with null server", result);
     }
 
@@ -84,7 +84,7 @@ public class WebhookAuthenticatorTest {
 
         // Since no webhook configuration is available (returns null),
         // authentication should pass by default
-        boolean result = authenticator.authenticate(mockRequest, mockServer);
+        boolean result = authenticator.authenticate(mockRequest, mockServer, null);
         assertTrue("Should pass authentication when no configuration is available", result);
     }
 
@@ -97,7 +97,7 @@ public class WebhookAuthenticatorTest {
         // Use reflection to access private method for testing
         // This would need to be refactored or made package-private for proper testing
         assertTrue("Should pass basic authentication",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -107,7 +107,7 @@ public class WebhookAuthenticatorTest {
 
         // Should still pass authentication (no IP restrictions configured)
         assertTrue("Should pass authentication with X-Forwarded-For header",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -117,7 +117,7 @@ public class WebhookAuthenticatorTest {
 
         // Should still pass authentication (no IP restrictions configured)
         assertTrue("Should pass authentication with multiple forwarded IPs",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -128,7 +128,7 @@ public class WebhookAuthenticatorTest {
 
         // Should pass since no token validation is configured
         assertTrue("Should pass authentication with token header",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -140,7 +140,7 @@ public class WebhookAuthenticatorTest {
 
         // Should pass since no token validation is configured
         assertTrue("Should pass authentication with Authorization Bearer token",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -153,7 +153,7 @@ public class WebhookAuthenticatorTest {
 
         // Should pass since no token validation is configured
         assertTrue("Should pass authentication with query parameter token",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, null));
     }
 
     @Test
@@ -165,7 +165,7 @@ public class WebhookAuthenticatorTest {
 
         // Should pass since no HMAC validation is configured
         assertTrue("Should pass authentication with HMAC signature",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, "{\"type\":\"patchset-created\"}"));
     }
 
     @Test
@@ -176,7 +176,7 @@ public class WebhookAuthenticatorTest {
 
         // For now, we can only test through the public authenticate method
         assertTrue("Authentication should handle null values gracefully",
-                  authenticator.authenticate(mockRequest, mockServer));
+                  authenticator.authenticate(mockRequest, mockServer, ""));
     }
 
     @Test
@@ -187,7 +187,7 @@ public class WebhookAuthenticatorTest {
         long startTime = System.currentTimeMillis();
 
         for (int i = 0; i < TEST_ITERATIONS; i++) {
-            authenticator.authenticate(mockRequest, mockServer);
+            authenticator.authenticate(mockRequest, mockServer, null);
         }
 
         long endTime = System.currentTimeMillis();

@@ -153,7 +153,7 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
             }
 
             // Authenticate the request
-            if (!authenticator.authenticate(req, server)) {
+            if (!authenticator.authenticate(req, server, payload)) {
                 sendError(rsp, HttpServletResponse.SC_UNAUTHORIZED,
                          "Webhook authentication failed");
                 return;

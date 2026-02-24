@@ -68,9 +68,10 @@ public class WebhookAuthenticator {
      *
      * @param request the HTTP request to authenticate
      * @param server the Gerrit server configuration
+     * @param payload the webhook payload for HMAC signature validation
      * @return true if authentication succeeds, false otherwise
      */
-    public boolean authenticate(HttpServletRequest request, GerritServer server) {
+    public boolean authenticate(HttpServletRequest request, GerritServer server, String payload) {
         if (request == null || server == null) {
             LOGGER.warning("Cannot authenticate null request or server");
             return false;
@@ -93,7 +94,7 @@ public class WebhookAuthenticator {
             }
 
             // 3. Check HMAC signature (if configured)
-            if (!isSignatureValid(request, server)) {
+            if (!isSignatureValid(request, server, payload)) {
                 LOGGER.fine("Invalid HMAC signature");
                 return false;
             }
@@ -174,9 +175,10 @@ public class WebhookAuthenticator {
      *
      * @param request the HTTP request
      * @param server the Gerrit server configuration
+     * @param payload the webhook payload to validate against the signature
      * @return true if signature is valid or no signature validation is configured
      */
-    private boolean isSignatureValid(HttpServletRequest request, GerritServer server) {
+    private boolean isSignatureValid(HttpServletRequest request, GerritServer server, String payload) {
         String hmacSecret = getWebhookHmacSecret(server);
 
         if (hmacSecret == null || hmacSecret.trim().isEmpty()) {
@@ -192,10 +194,8 @@ public class WebhookAuthenticator {
         }
 
         try {
-            // Get the request body (payload) for signature calculation
-            String payload = getRequestPayload(request);
             if (payload == null) {
-                LOGGER.warning("Unable to read request payload for signature validation");
+                LOGGER.warning("Unable to get request payload for signature validation");
                 return false;
             }
 
@@ -340,17 +340,4 @@ public class WebhookAuthenticator {
         return null;
     }
 
-    /**
-     * Reads the request payload/body.
-     * TODO: This needs to be implemented to read from the request input stream.
-     *
-     * @param request the HTTP request
-     * @return the request payload as string, or null if reading fails
-     */
-    private String getRequestPayload(HttpServletRequest request) {
-        // TODO: Implement payload reading
-        // This should read the request body that was already consumed
-        // We may need to cache it during the initial read in WebhookEventReceiver
-        return null;
-    }
 }
