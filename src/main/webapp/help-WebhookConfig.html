@@ -1,0 +1,12 @@
+<p>Enable authentication and security features for the webhook endpoint.</p>
+
+<p>When enabled, you can configure multiple authentication methods to secure your webhook endpoint:</p>
+<ul>
+    <li><strong>Secret Token:</strong> A shared secret token that must be provided in webhook requests</li>
+    <li><strong>HMAC Signature:</strong> Validates request payload integrity using HMAC-SHA256 signatures</li>
+    <li><strong>IP Whitelisting:</strong> Restricts webhook access to specific IP addresses</li>
+</ul>
+
+<p><strong>Security Note:</strong> It is highly recommended to enable at least one authentication method for production environments to prevent unauthorized webhook requests.</p>
+
+<p>If disabled, the webhook endpoint will accept requests from any source without authentication (not recommended for production).</p>

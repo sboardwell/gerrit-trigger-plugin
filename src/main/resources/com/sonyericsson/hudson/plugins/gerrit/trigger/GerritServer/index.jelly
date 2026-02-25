@@ -130,7 +130,7 @@
                             </div>
                             <div class="jenkins-form-item">
                                 <div class="jenkins-form-description">
-                                    <strong>Webhook URL:</strong> <code>${rootURL}/gerrit-webhook</code>
+                                    <strong>Webhook URL:</strong> <code>${rootURL}/gerrit-webhook/</code>
                                 </div>
                             </div>
                         </f:block>

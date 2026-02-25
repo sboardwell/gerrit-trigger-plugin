@@ -1,0 +1,27 @@
+<p>A comma-separated list of IP addresses that are allowed to send webhook requests to Jenkins.</p>
+
+<p><strong>Format:</strong> Enter IP addresses separated by commas, for example:</p>
+<code>192.168.1.10, 10.0.0.5, 172.16.0.100</code>
+
+<p><strong>Behavior:</strong></p>
+<ul>
+    <li>If this list is <strong>empty</strong>, webhook requests from any IP address will be accepted (no IP filtering)</li>
+    <li>If this list contains IP addresses, only requests from those IPs will be accepted</li>
+    <li>Requests from other IP addresses will be rejected with HTTP 401 Unauthorized</li>
+</ul>
+
+<p><strong>Proxy Considerations:</strong> The plugin automatically checks the following headers to determine the real client IP:</p>
+<ul>
+    <li><code>X-Forwarded-For</code> (takes the first IP if multiple are present)</li>
+    <li><code>X-Real-IP</code></li>
+    <li>Remote address (if no proxy headers are present)</li>
+</ul>
+
+<p><strong>Security Note:</strong> IP whitelisting provides network-level security but should be combined with token or HMAC authentication for defense-in-depth.</p>
+
+<p><strong>Example use cases:</strong></p>
+<ul>
+    <li>Restrict to your Gerrit server IP(s): <code>192.168.1.50</code></li>
+    <li>Allow multiple Gerrit servers: <code>192.168.1.50, 192.168.1.51</code></li>
+    <li>Allow all IPs (not recommended): Leave empty</li>
+</ul>
