@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls:*)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:raw.githubusercontent.com)",
+      "WebFetch(domain:javadoc.jenkins.io)",
+      "WebFetch(domain:docs.cloudbees.com)",
+      "Bash(curl:*)",
+      "Bash(mvn checkstyle:check:*)"
+    ]
+  }
+}

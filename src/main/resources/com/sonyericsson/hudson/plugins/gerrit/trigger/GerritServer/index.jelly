@@ -130,16 +130,10 @@
                             </div>
                             <div class="jenkins-form-item">
                                 <div class="jenkins-form-description">
-                                    <strong>Webhook URL:</strong> <code>${rootURL}/gerrit-webhook</code>
+                                    <strong>Webhook URL:</strong> <code>${rootURL}/gerrit-webhook/</code>
                                 </div>
                             </div>
                         </f:block>
-                        <f:entry title="${%Log Webhook Requests for debugging)}"
-                                 help="/plugin/gerrit-trigger/help-WebhookLogRequests.html">
-                            <f:checkbox name="logWebhookRequests"
-                                        checked="${it.config.logWebhookRequests}"
-                                        default="false"/>
-                        </f:entry>
                         <f:optionalBlock name="webhookConfig"
                                          title="${%Enable Webhook Authentication}"
                                          checked="${it.config.webhookConfig != null and it.config.webhookConfig.enabled}"

@@ -1,0 +1,46 @@
+<p>Events are received via HTTP POST webhooks from the Gerrit server, while maintaining SSH connection for sending build results.</p>
+
+<p><strong>How it works:</strong></p>
+<ul>
+    <li>Gerrit sends events as HTTP POST requests to Jenkins webhook endpoint</li>
+    <li>Jenkins receives and processes events through the webhook endpoint</li>
+    <li>SSH connection is still maintained for sending build results back to Gerrit (review comments, votes)</li>
+    <li>Webhook authentication can be configured (secret token, HMAC signature, IP whitelisting)</li>
+</ul>
+
+<p><strong>Webhook Endpoint:</strong></p>
+<code>$JENKINS_URL/gerrit-webhook/</code>
+<p><strong>Important:</strong> The trailing slash (<code>/</code>) is mandatory. Ensure your Gerrit webhook configuration includes it.</p>
+
+<p><strong>Requirements:</strong></p>
+<ul>
+    <li>Gerrit server must be configured with webhook plugin or built-in webhook support</li>
+    <li>HTTP/HTTPS connectivity from Gerrit to Jenkins must be available</li>
+    <li>SSH access is still required for sending build results back to Gerrit</li>
+    <li>Webhook authentication should be configured for production environments</li>
+</ul>
+
+<p><strong>Benefits:</strong></p>
+<ul>
+    <li><strong>Firewall-friendly:</strong> Uses standard HTTP/HTTPS protocols instead of persistent SSH connections</li>
+    <li><strong>Flexible authentication:</strong> Supports multiple authentication methods (tokens, HMAC, IP filtering)</li>
+    <li><strong>Scalable:</strong> HTTP POST is stateless and easier to load balance</li>
+    <li><strong>No persistent connections:</strong> No need to maintain long-lived SSH connections for event delivery</li>
+    <li><strong>Cloud-friendly:</strong> Works well with reverse proxies, load balancers, and cloud environments</li>
+</ul>
+
+<p><strong>Considerations:</strong></p>
+<ul>
+    <li>Requires webhook configuration on the Gerrit server side</li>
+    <li>Still needs SSH connection for sending build results (bidirectional communication not possible over webhooks)</li>
+    <li>Should enable webhook authentication to prevent unauthorized requests</li>
+    <li>May have slightly higher latency than SSH streaming (depends on Gerrit webhook delivery)</li>
+</ul>
+
+<p><strong>Security Configuration:</strong></p>
+<p>When webhook authentication is enabled, you can configure:</p>
+<ul>
+    <li><strong>Secret Token:</strong> Shared token validated from HTTP headers or query parameters</li>
+    <li><strong>HMAC Signature:</strong> Cryptographic validation of payload integrity using HMAC-SHA256</li>
+    <li><strong>IP Whitelisting:</strong> Restrict access to specific Gerrit server IP addresses</li>
+</ul>

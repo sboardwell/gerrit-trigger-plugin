@@ -1,0 +1,33 @@
+<p>The traditional connection method where Gerrit events are received via SSH stream-events connection.</p>
+
+<p><strong>How it works:</strong></p>
+<ul>
+    <li>Jenkins establishes a persistent SSH connection to the Gerrit server</li>
+    <li>Gerrit streams events in real-time using the <code>gerrit stream-events</code> command</li>
+    <li>The same SSH connection is used to send build results back to Gerrit (review comments, votes)</li>
+</ul>
+
+<p><strong>Requirements:</strong></p>
+<ul>
+    <li>SSH access to the Gerrit server must be enabled</li>
+    <li>Jenkins must have SSH key authentication configured for the Gerrit user</li>
+    <li>The Gerrit user must have appropriate permissions to stream events</li>
+    <li>Network connectivity on the SSH port (typically 29418) must be available</li>
+</ul>
+
+<p><strong>Benefits:</strong></p>
+<ul>
+    <li><strong>Real-time:</strong> Events are delivered immediately with minimal latency</li>
+    <li><strong>Reliable:</strong> Persistent connection with automatic reconnection on failure</li>
+    <li><strong>Bidirectional:</strong> Same connection used for receiving events and sending build results</li>
+    <li><strong>Proven:</strong> The original and most widely tested connection method</li>
+</ul>
+
+<p><strong>Considerations:</strong></p>
+<ul>
+    <li>Requires maintaining a persistent SSH connection (may be blocked by some firewalls/proxies)</li>
+    <li>May require special firewall rules for SSH access</li>
+    <li>Connection drops will temporarily interrupt event delivery until reconnection</li>
+</ul>
+
+<p><strong>Recommended for:</strong> Most deployments, especially when Jenkins and Gerrit are in the same network or when SSH access is readily available.</p>

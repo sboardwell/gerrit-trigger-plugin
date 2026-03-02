@@ -80,7 +80,7 @@ public class WebhookEventProcessor {
             // Set the provider information on the event
             setProviderInfo(event, server);
 
-            LOGGER.log(Level.INFO, "Successfully processed webhook event: {0}",
+            LOGGER.log(Level.FINE, "Successfully processed webhook event: {0}",
                       event.getClass().getSimpleName());
 
             return event;

@@ -65,19 +65,20 @@ public class WebhookCrumbExclusion extends CrumbExclusion {
         String contextPath = req.getContextPath();
         String servletPath = req.getServletPath();
 
-        LOGGER.log(Level.INFO, "WebhookCrumbExclusion.process() - URI: {0}, pathInfo: {1}, "
-                  + "contextPath: {2}, servletPath: {3}, EXCLUSION_PATH: {4}",
-                  new Object[]{requestURI, pathInfo, contextPath, servletPath, EXCLUSION_PATH});
-
+        if (LOGGER.isLoggable(Level.FINE)) {
+            LOGGER.log(Level.FINE, "WebhookCrumbExclusion.process() - URI: {0}, pathInfo: {1}, "
+                            + "contextPath: {2}, servletPath: {3}, EXCLUSION_PATH: {4}",
+                    new Object[]{requestURI, pathInfo, contextPath, servletPath, EXCLUSION_PATH});
+        }
         // Check if this request is for our webhook endpoint
         // Use contains() to be more forgiving than equals()
         boolean isWebhookPath = (pathInfo != null && pathInfo.contains(EXCLUSION_PATH))
                              || (requestURI != null && requestURI.contains(EXCLUSION_PATH));
 
         if (isWebhookPath) {
-            LOGGER.log(Level.INFO, "Webhook path matched! Calling chain.doFilter() to continue processing");
+            LOGGER.log(Level.FINE, "Webhook path matched! Calling chain.doFilter() to continue processing");
             chain.doFilter(req, resp);
-            LOGGER.log(Level.INFO, "chain.doFilter() completed, returning true");
+            LOGGER.log(Level.FINE, "chain.doFilter() completed, returning true");
             return true;
         }
 

@@ -1,0 +1,16 @@
+<p>When enabled, webhook requests <strong>must</strong> include a valid HMAC-SHA256 signature to be accepted.</p>
+
+<p>The signature must be provided in the <code>X-Gerrit-Signature</code> HTTP header in the format: <code>sha256=&lt;hex-signature&gt;</code></p>
+
+<p>If this option is disabled (unchecked), the HMAC secret configuration is ignored and requests are accepted without signature validation.</p>
+
+<p><strong>Recommended:</strong> Enable this option if you have configured an HMAC secret to ensure payload integrity and authenticity.</p>
+
+<p><strong>Security Benefit:</strong> HMAC signature validation is more secure than simple token authentication because it:</p>
+<ul>
+    <li>Validates the entire payload content (detects tampering)</li>
+    <li>Prevents replay attacks when combined with timestamps</li>
+    <li>Provides cryptographic proof of authenticity</li>
+</ul>
+
+<p><strong>Use case for disabling:</strong> You may want to disable this if you're using only token-based authentication or IP whitelisting, without HMAC signature validation.</p>

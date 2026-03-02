@@ -60,7 +60,6 @@ public class GerritServerWebhookConfigTest {
         // Create connectionType object with nested fields (radioBlock structure)
         JSONObject connectionTypeData = new JSONObject();
         connectionTypeData.put("value", "WEBHOOK");
-        connectionTypeData.put("logWebhookRequests", false);
 
         // Create webhook authentication config (nested inside connectionType)
         JSONObject webhookData = new JSONObject();
@@ -186,7 +185,6 @@ public class GerritServerWebhookConfigTest {
         // Create connectionType object with nested fields (radioBlock structure)
         JSONObject connectionTypeData = new JSONObject();
         connectionTypeData.put("value", "WEBHOOK");
-        connectionTypeData.put("logWebhookRequests", true);
 
         // Create webhook authentication config (nested inside connectionType)
         JSONObject webhookData = new JSONObject();
@@ -216,7 +214,6 @@ public class GerritServerWebhookConfigTest {
         assertEquals("Require secret token should be copied", true, copiedWebhookConfig.isRequireSecretToken());
         assertEquals("Require HMAC signature should be copied", true,
                     copiedWebhookConfig.isRequireHmacSignature());
-        assertEquals("Log requests should be copied", true, copiedConfig.isLogWebhookRequests());
 
         // Verify it's a deep copy (not the same object)
         assertNotNull("Original webhook config should exist", originalConfig.getWebhookConfig());

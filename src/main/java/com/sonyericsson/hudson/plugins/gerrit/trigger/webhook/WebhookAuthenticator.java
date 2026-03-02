@@ -68,9 +68,10 @@ public class WebhookAuthenticator {
      *
      * @param request the HTTP request to authenticate
      * @param server the Gerrit server configuration
+     * @param payload the webhook payload for HMAC signature validation
      * @return true if authentication succeeds, false otherwise
      */
-    public boolean authenticate(HttpServletRequest request, GerritServer server) {
+    public boolean authenticate(HttpServletRequest request, GerritServer server, String payload) {
         if (request == null || server == null) {
             LOGGER.warning("Cannot authenticate null request or server");
             return false;
@@ -82,19 +83,19 @@ public class WebhookAuthenticator {
 
             // 1. Check IP address whitelist (if configured)
             if (!isIpAllowed(request, server)) {
-                LOGGER.warning("Request from IP address " + request.getRemoteAddr() + " not allowed");
+                LOGGER.fine("Request from IP address " + request.getRemoteAddr() + " not allowed");
                 return false;
             }
 
             // 2. Check secret token (if configured)
             if (!isTokenValid(request, server)) {
-                LOGGER.warning("Invalid or missing webhook token");
+                LOGGER.fine("Invalid or missing webhook token");
                 return false;
             }
 
             // 3. Check HMAC signature (if configured)
-            if (!isSignatureValid(request, server)) {
-                LOGGER.warning("Invalid HMAC signature");
+            if (!isSignatureValid(request, server, payload)) {
+                LOGGER.fine("Invalid HMAC signature");
                 return false;
             }
 
@@ -102,7 +103,7 @@ public class WebhookAuthenticator {
             return true;
 
         } catch (Exception e) {
-            LOGGER.log(Level.SEVERE, "Error during webhook authentication", e);
+            LOGGER.log(Level.WARNING, "Error during webhook authentication", e);
             return false;
         }
     }
@@ -138,7 +139,6 @@ public class WebhookAuthenticator {
      * @return true if token is valid or no token is configured
      */
     private boolean isTokenValid(HttpServletRequest request, GerritServer server) {
-        // TODO: Get configured secret token from server config
         String configuredToken = getWebhookSecret(server);
 
         if (configuredToken == null || configuredToken.trim().isEmpty()) {
@@ -175,10 +175,10 @@ public class WebhookAuthenticator {
      *
      * @param request the HTTP request
      * @param server the Gerrit server configuration
+     * @param payload the webhook payload to validate against the signature
      * @return true if signature is valid or no signature validation is configured
      */
-    private boolean isSignatureValid(HttpServletRequest request, GerritServer server) {
-        // TODO: Get configured HMAC secret from server config
+    private boolean isSignatureValid(HttpServletRequest request, GerritServer server, String payload) {
         String hmacSecret = getWebhookHmacSecret(server);
 
         if (hmacSecret == null || hmacSecret.trim().isEmpty()) {
@@ -194,10 +194,8 @@ public class WebhookAuthenticator {
         }
 
         try {
-            // Get the request body (payload) for signature calculation
-            String payload = getRequestPayload(request);
             if (payload == null) {
-                LOGGER.warning("Unable to read request payload for signature validation");
+                LOGGER.warning("Unable to get request payload for signature validation");
                 return false;
             }
 
@@ -342,17 +340,4 @@ public class WebhookAuthenticator {
         return null;
     }
 
-    /**
-     * Reads the request payload/body.
-     * TODO: This needs to be implemented to read from the request input stream.
-     *
-     * @param request the HTTP request
-     * @return the request payload as string, or null if reading fails
-     */
-    private String getRequestPayload(HttpServletRequest request) {
-        // TODO: Implement payload reading
-        // This should read the request body that was already consumed
-        // We may need to cache it during the initial read in WebhookEventReceiver
-        return null;
-    }
 }
