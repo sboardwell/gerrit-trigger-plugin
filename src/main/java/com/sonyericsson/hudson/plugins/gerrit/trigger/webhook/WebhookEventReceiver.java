@@ -204,60 +204,51 @@ public class WebhookEventReceiver extends WebhookCrumbExclusion implements Unpro
             LOGGER.log(Level.WARNING, "No Gerrit servers configured");
             return null;
         }
-
-        // Get list of webhook-enabled servers
-        java.util.List<GerritServer> webhookServers = new java.util.ArrayList<>();
-        for (GerritServer server : plugin.getServers()) {
-            if (server.getConfig() instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
-                com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config config =
-                        (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)server.getConfig();
-
-                if (config.getConnectionType()
-                        == com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config.ConnectionType.WEBHOOK) {
-                    webhookServers.add(server);
-                }
-            }
-        }
-
-        if (webhookServers.isEmpty()) {
-            LOGGER.log(Level.WARNING,
-                      "No server configured for webhook mode. Please configure at least one server "
-                      + "with connection type set to WEBHOOK to receive webhook events.");
+        String changeUrl = null;
+        try {
+            // Extract change URL from payload if available
+            changeUrl = extractChangeUrl(payload);
+        } catch (Exception e) {
+            LOGGER.log(Level.WARNING, "Failed to parse payload for server identification", e);
             return null;
         }
 
-        // If only one webhook server, return it
-        if (webhookServers.size() == 1) {
-            LOGGER.log(Level.FINE, "Using only webhook-enabled server: {0}", webhookServers.get(0).getName());
-            return webhookServers.get(0);
-        }
-
-        // Multiple webhook servers - try to identify from payload
-        try {
-            // Extract change URL from payload if available
-            String changeUrl = extractChangeUrl(payload);
-            if (changeUrl != null && !changeUrl.isEmpty()) {
-                // Match against frontend URLs
-                for (GerritServer server : webhookServers) {
-                    String frontendUrl = server.getFrontEndUrl();
-                    if (frontendUrl != null && changeUrl.startsWith(frontendUrl)) {
-                        LOGGER.log(Level.FINE,
-                                  "Matched webhook to server {0} by Frontend URL: {1}",
-                                  new Object[]{server.getName(), frontendUrl});
-                        return server;
+        boolean serverWithWebhookConfiguredFound = false;
+        if (changeUrl != null && !changeUrl.isEmpty()) {
+            for (GerritServer server : plugin.getServers()) {
+                if (server.getConfig() instanceof com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config) {
+                    com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config config =
+                            (com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config)server.getConfig();
+                    if (config.getConnectionType()
+                            == com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config.ConnectionType.WEBHOOK) {
+                        serverWithWebhookConfiguredFound = true;
+                        String frontendUrl = server.getFrontEndUrl();
+                        if (frontendUrl != null && changeUrl.startsWith(frontendUrl)) {
+                            if (LOGGER.isLoggable(Level.FINE)) {
+                                LOGGER.log(Level.FINE,
+                                        "Matched webhook to server {0} by Frontend URL: {1}",
+                                        new Object[]{server.getName(), frontendUrl});
+                            }
+                            return server;
+                        }
                     }
                 }
             }
-        } catch (Exception e) {
-            LOGGER.log(Level.WARNING, "Failed to parse payload for server identification", e);
-        }
+            if (!serverWithWebhookConfiguredFound) {
+                LOGGER.log(Level.WARNING,
+                        "No server configured for webhook mode. Please configure at least one server "
+                                + "with connection type set to WEBHOOK to receive webhook events.");
+            } else {
+                LOGGER.log(Level.WARNING,
+                        "No server matched payload's changeUrl");
+            }
+            return null;
 
-        // Fall back to first webhook-enabled server
-        LOGGER.log(Level.WARNING,
-                  "Multiple webhook servers configured but could not identify from payload. "
-                  + "Using first webhook-enabled server: {0}",
-                  webhookServers.get(0).getName());
-        return webhookServers.get(0);
+        } else {
+            LOGGER.log(Level.WARNING,
+                    "ChangeURL is null or empty, and it is mandatory. The server cannot be identified.");
+            return null;
+        }
     }
 
     /**

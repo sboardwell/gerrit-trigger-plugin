@@ -580,6 +580,7 @@ public class GerritServer implements Describable<GerritServer>, Action {
      *
      */
     public synchronized void startConnection() {
+        logger.info("Starting {} server connection", getName());
         checkPermission();
         if (!config.hasDefaultValues()) {
             if (gerritConnection == null) {
@@ -638,6 +639,7 @@ public class GerritServer implements Describable<GerritServer>, Action {
      *
      */
     public synchronized void stopConnection() {
+        logger.info("Stopping {} server connection", getName());
         checkPermission();
         if (gerritConnection != null) {
             gerritConnection.shutdown(true);
