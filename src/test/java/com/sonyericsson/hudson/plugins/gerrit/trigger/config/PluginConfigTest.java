@@ -69,11 +69,13 @@ public class PluginConfigTest {
         String formString = "{"
                 + "\"numberOfSendingWorkerThreads\":\"4\","
                 + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":true,"
                 + "\"filterIn\":\"" + events + "\"}";
         JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
         PluginConfig config = new PluginConfig(form);
         assertEquals(6, config.getNumberOfReceivingWorkerThreads());
         assertEquals(4, config.getNumberOfSendingWorkerThreads());
+        assertTrue(config.isClusterModeEnabled());
         assertEquals(Arrays.asList(events.split(" ")), config.getFilterIn());
         for (GerritEventType type : GerritEventType.values()) {
             if (events.contains(type.getTypeValue())) {
@@ -96,12 +98,14 @@ public class PluginConfigTest {
         String formString = "{"
                 + "\"numberOfSendingWorkerThreads\":\"4\","
                 + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":true,"
                 + "\"filterIn\":\"" + events + "\"}";
         JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
         PluginConfig initialConfig = new PluginConfig(form);
         PluginConfig config = new PluginConfig(initialConfig);
         assertEquals(6, config.getNumberOfReceivingWorkerThreads());
         assertEquals(4, config.getNumberOfSendingWorkerThreads());
+        assertTrue(config.isClusterModeEnabled());
         assertEquals(Arrays.asList(events.split(" ")), config.getFilterIn());
         for (GerritEventType type : GerritEventType.values()) {
             assertFalse(type.isInteresting());
@@ -129,5 +133,110 @@ public class PluginConfigTest {
                 assertFalse(type.isInteresting());
             }
         }
+    }
+
+    /**
+     * Test cluster mode enabled from form data.
+     */
+    @Test
+    public void testClusterModeEnabled() {
+        String formString = "{"
+                + "\"numberOfSendingWorkerThreads\":\"4\","
+                + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":true}";
+        JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
+        PluginConfig config = new PluginConfig(form);
+        assertTrue(config.isClusterModeEnabled());
+    }
+
+    /**
+     * Test cluster mode disabled from form data.
+     */
+    @Test
+    public void testClusterModeDisabled() {
+        String formString = "{"
+                + "\"numberOfSendingWorkerThreads\":\"4\","
+                + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":false}";
+        JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
+        PluginConfig config = new PluginConfig(form);
+        assertFalse(config.isClusterModeEnabled());
+    }
+
+    /**
+     * Test cluster mode defaults to false when not specified in form data.
+     */
+    @Test
+    public void testClusterModeDefaultValue() {
+        String formString = "{"
+                + "\"numberOfSendingWorkerThreads\":\"4\","
+                + "\"numberOfReceivingWorkerThreads\":\"6\"}";
+        JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
+        PluginConfig config = new PluginConfig(form);
+        assertFalse(config.isClusterModeEnabled());
+    }
+
+    /**
+     * Test cluster mode is properly copied in copy constructor.
+     */
+    @Test
+    public void testClusterModeCopyConstructor() {
+        String formString = "{"
+                + "\"numberOfSendingWorkerThreads\":\"4\","
+                + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":true}";
+        JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
+        PluginConfig initialConfig = new PluginConfig(form);
+        PluginConfig copiedConfig = new PluginConfig(initialConfig);
+        assertTrue(copiedConfig.isClusterModeEnabled());
+    }
+
+    /**
+     * Test cluster mode false value is properly copied in copy constructor.
+     */
+    @Test
+    public void testClusterModeCopyConstructorWithDisabled() {
+        String formString = "{"
+                + "\"numberOfSendingWorkerThreads\":\"4\","
+                + "\"numberOfReceivingWorkerThreads\":\"6\","
+                + "\"clusterModeEnabled\":false}";
+        JSONObject form = (JSONObject)JSONSerializer.toJSON(formString);
+        PluginConfig initialConfig = new PluginConfig(form);
+        PluginConfig copiedConfig = new PluginConfig(initialConfig);
+        assertFalse(copiedConfig.isClusterModeEnabled());
+    }
+
+    /**
+     * Test cluster mode setter and getter methods directly.
+     */
+    @Test
+    public void testClusterModeSetterGetter() {
+        PluginConfig config = new PluginConfig();
+
+        // Default should be false
+        assertFalse(config.isClusterModeEnabled());
+
+        // Set to true
+        config.setClusterModeEnabled(true);
+        assertTrue(config.isClusterModeEnabled());
+
+        // Set back to false
+        config.setClusterModeEnabled(false);
+        assertFalse(config.isClusterModeEnabled());
+    }
+
+    /**
+     * Test that default constructor creates config with cluster mode disabled.
+     */
+    @Test
+    public void testDefaultConstructorClusterMode() {
+        PluginConfig config = new PluginConfig();
+        assertFalse(config.isClusterModeEnabled());
+
+        // Verify other defaults are also set correctly
+        assertEquals(PluginConfig.DEFAULT_NR_OF_RECEIVING_WORKER_THREADS,
+                     config.getNumberOfReceivingWorkerThreads());
+        assertEquals(PluginConfig.DEFAULT_NR_OF_SENDING_WORKER_THREADS,
+                     config.getNumberOfSendingWorkerThreads());
     }
 }

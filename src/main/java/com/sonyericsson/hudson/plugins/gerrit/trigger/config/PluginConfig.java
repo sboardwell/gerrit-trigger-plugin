@@ -68,6 +68,7 @@ public class PluginConfig implements GerritWorkersConfig {
     private int numberOfReceivingWorkerThreads;
     private int numberOfSendingWorkerThreads;
     private int replicationCacheExpirationInMinutes;
+    private boolean clusterModeEnabled;
     private List<String> filterIn;
 
     /**
@@ -96,6 +97,7 @@ public class PluginConfig implements GerritWorkersConfig {
         numberOfReceivingWorkerThreads = pluginConfig.getNumberOfReceivingWorkerThreads();
         numberOfSendingWorkerThreads = pluginConfig.getNumberOfSendingWorkerThreads();
         replicationCacheExpirationInMinutes = pluginConfig.getReplicationCacheExpirationInMinutes();
+        clusterModeEnabled = pluginConfig.isClusterModeEnabled();
         filterIn = pluginConfig.getFilterIn();
     }
 
@@ -134,6 +136,8 @@ public class PluginConfig implements GerritWorkersConfig {
         if (replicationCacheExpirationInMinutes <= 0) {
             replicationCacheExpirationInMinutes = ReplicationCache.DEFAULT_EXPIRATION_IN_MINUTES;
         }
+
+        clusterModeEnabled = formData.optBoolean("clusterModeEnabled", false);
 
         setInterestingEvents(getFilterInFromFormData(formData));
         updateEventFilter();
@@ -202,6 +206,22 @@ public class PluginConfig implements GerritWorkersConfig {
      */
     public void setReplicationCacheExpirationInMinutes(int replicationCacheExpirationInMinutes) {
         this.replicationCacheExpirationInMinutes = replicationCacheExpirationInMinutes;
+    }
+
+    /**
+     * Whether cluster mode is enabled for HA/HS deployments.
+     * @return true if cluster mode is enabled
+     */
+    public boolean isClusterModeEnabled() {
+        return clusterModeEnabled;
+    }
+
+    /**
+     * Set cluster mode enabled state.
+     * @param clusterModeEnabled true to enable cluster mode
+     */
+    public void setClusterModeEnabled(boolean clusterModeEnabled) {
+        this.clusterModeEnabled = clusterModeEnabled;
     }
 
     /**

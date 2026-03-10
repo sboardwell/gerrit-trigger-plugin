@@ -4,6 +4,7 @@ unclassified:
       numberOfReceivingWorkerThreads: 4
       numberOfSendingWorkerThreads: 2
       replicationCacheExpirationInMinutes: 10
+      clusterModeEnabled: true
       interestingEvents:
         - "ref-updated"
         - "comment-added"

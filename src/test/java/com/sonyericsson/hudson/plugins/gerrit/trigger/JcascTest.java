@@ -88,6 +88,7 @@ public class JcascTest {
         assertEquals(4, pc.getNumberOfReceivingWorkerThreads());
         assertEquals(2, pc.getNumberOfSendingWorkerThreads());
         assertEquals(10, pc.getReplicationCacheExpirationInMinutes());
+        assertTrue(pc.isClusterModeEnabled());
         assertEquals(Arrays.asList("ref-updated", "comment-added"), pc.getInterestingEvents());
 
         List<GerritServer> servers = g.getServers();
