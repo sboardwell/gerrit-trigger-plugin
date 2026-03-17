@@ -28,6 +28,7 @@ import com.sonyericsson.hudson.plugins.gerrit.trigger.dependency.DependencyQueue
 import com.sonyericsson.hudson.plugins.gerrit.trigger.replication.ReplicationQueueTaskDispatcher;
 import com.sonymobile.tools.gerrit.gerritevents.GerritHandler;
 import com.sonymobile.tools.gerrit.gerritevents.GerritSendCommandQueue;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastManager;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
@@ -586,6 +587,14 @@ public class PluginImpl extends GlobalConfiguration {
             s.start();
         }
         active = true;
+
+        // Initialize Hazelcast if cluster mode is enabled
+        try {
+            HazelcastManager.initialize();
+        } catch (Exception e) {
+            logger.error("Failed to initialize Hazelcast cluster mode", e);
+            // Continue plugin startup even if Hazelcast fails
+        }
     }
 
     /**
@@ -611,10 +620,25 @@ public class PluginImpl extends GlobalConfiguration {
 
     /**
      * Load plugin config.
+     * <p>
+     * This method is called:
+     * <ul>
+     *   <li>During plugin startup (via {@link #start()})</li>
+     *   <li>When configuration is reloaded from another replica (HA/HS)</li>
+     * </ul>
+     * In HA/HS environments, when configuration is saved on replica 1,
+     * replication broadcasts a message that triggers {@code load()} on replica 2,
+     * ensuring all replicas stay synchronized.
      */
     @Override
     public void load() {
+        // Capture previous cluster mode state (before loading new config)
+        boolean wasClusterModeEnabled = pluginConfig != null && pluginConfig.isClusterModeEnabled();
+
+        // Load configuration from disk (deserializes XML)
         super.load();
+
+        // Backward compatibility: Initialize pluginConfig if null
         if (pluginConfig == null) {
             PluginConfig conf = new PluginConfig();
             if (config != null) {
@@ -623,6 +647,8 @@ public class PluginImpl extends GlobalConfiguration {
             }
             pluginConfig = conf;
         }
+
+        // Backward compatibility: Migrate old server format
         if (servers.isEmpty()) {
             if (config != null) { //have loaded data in old format, so add a new server with the old config to the list.
                 GerritServer defaultServer = new GerritServer(DEFAULT_SERVER_NAME);
@@ -631,13 +657,62 @@ public class PluginImpl extends GlobalConfiguration {
             }
             save();
         }
+
         pluginConfig.updateEventFilter();
+
         //For unit/integration testing only...
         if (System.getProperty(TEST_SSH_KEYFILE_LOCATION_PROPERTY) != null && !servers.isEmpty()) {
             File location = new File(System.getProperty(TEST_SSH_KEYFILE_LOCATION_PROPERTY));
             for (GerritServer server : servers) {
                 ((Config)server.getConfig()).setGerritAuthKeyFile(location);
             }
+        }
+
+        // Synchronize Hazelcast state with reloaded configuration
+        // This handles the HA/HS scenario where replica 2 receives
+        // a configuration change from replica 1 and needs to adjust Hazelcast
+        // state accordingly.
+        // Only synchronize when plugin is active (not during initialization or testing)
+        boolean isClusterModeEnabled = pluginConfig.isClusterModeEnabled();
+
+        if (active && isClusterModeEnabled != wasClusterModeEnabled) {
+            logger.info("Cluster mode configuration changed during reload: {} -> {}",
+                    wasClusterModeEnabled, isClusterModeEnabled);
+
+            if (isClusterModeEnabled) {
+                // Cluster mode was enabled on another replica - start Hazelcast here
+                logger.info("Enabling cluster mode following configuration reload from another replica");
+                try {
+                    boolean initialized = HazelcastManager.initialize();
+                    if (initialized) {
+                        logger.info("Cluster mode enabled successfully. Hazelcast status: {}",
+                                HazelcastManager.getStatus());
+                    } else {
+                        logger.warn("Cluster mode initialization returned false. Check configuration.");
+                    }
+                } catch (Exception e) {
+                    logger.error("Failed to enable cluster mode during reload", e);
+                    // Plugin continues to work in standalone mode
+                }
+            } else {
+                // Cluster mode was disabled on another replica - shutdown Hazelcast here
+                logger.info("Disabling cluster mode following configuration reload from another replica");
+                try {
+                    HazelcastManager.shutdown();
+                    logger.info("Cluster mode disabled successfully. Plugin now running in standalone mode.");
+                } catch (Exception e) {
+                    logger.error("Error disabling cluster mode during reload", e);
+                    // Attempt to clean up anyway
+                    try {
+                        HazelcastManager.shutdown();
+                    } catch (Exception ex) {
+                        logger.error("Failed to shutdown Hazelcast during error recovery", ex);
+                    }
+                }
+            }
+        } else {
+            // Cluster mode setting unchanged - log for debugging
+            logger.debug("Cluster mode configuration unchanged during reload: {}", isClusterModeEnabled);
         }
     }
 
@@ -671,6 +746,14 @@ public class PluginImpl extends GlobalConfiguration {
      */
     public void stop() {
         active = false;
+
+        // Shutdown Hazelcast first (before stopping servers)
+        try {
+            HazelcastManager.shutdown();
+        } catch (Exception e) {
+            logger.error("Error shutting down Hazelcast", e);
+        }
+
         for (GerritServer s : servers) {
             s.stop();
         }
