@@ -176,14 +176,14 @@ public final class HazelcastConfig {
         logger.info("Hazelcast discovery mode: {}", discoveryMode);
 
         if ("kubernetes".equalsIgnoreCase(discoveryMode) || isKubernetesEnvironment()) {
-            configureKubernetesDiscovery(joinConfig);
+            configureKubernetesDiscovery(joinConfig, port);
         } else if ("tcp".equalsIgnoreCase(discoveryMode) || hasTcpMembersConfigured()) {
             configureTcpDiscovery(joinConfig);
         } else {
             // Fallback: Try Kubernetes, then TCP
             logger.info("Auto-detecting discovery mechanism...");
             if (isKubernetesEnvironment()) {
-                configureKubernetesDiscovery(joinConfig);
+                configureKubernetesDiscovery(joinConfig, port);
             } else {
                 configureTcpDiscovery(joinConfig);
             }
@@ -197,17 +197,20 @@ public final class HazelcastConfig {
      * Configures Kubernetes discovery.
      *
      * @param joinConfig the join configuration
+     * @param port the Hazelcast port to discover (filters out other Hazelcast instances on different ports)
      */
-    private static void configureKubernetesDiscovery(JoinConfig joinConfig) {
+    private static void configureKubernetesDiscovery(JoinConfig joinConfig, int port) {
         String serviceName = System.getProperty(K8S_SERVICE_NAME_PROPERTY, "jenkins");
         String namespace = System.getProperty(K8S_NAMESPACE_PROPERTY, "default");
 
-        logger.info("Configuring Kubernetes discovery: service={}, namespace={}", serviceName, namespace);
+        logger.info("Configuring Kubernetes discovery: service={}, namespace={}, port={}",
+                serviceName, namespace, port);
 
         joinConfig.getKubernetesConfig()
                 .setEnabled(true)
                 .setProperty("service-name", serviceName)
-                .setProperty("namespace", namespace);
+                .setProperty("namespace", namespace)
+                .setProperty("service-port", String.valueOf(port));
 
         // Disable other discovery methods
         joinConfig.getTcpIpConfig().setEnabled(false);
