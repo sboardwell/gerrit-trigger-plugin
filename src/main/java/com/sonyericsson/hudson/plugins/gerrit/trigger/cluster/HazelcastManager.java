@@ -31,8 +31,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Manages the lifecycle of the Hazelcast cluster member.
- * Handles initialization and shutdown based on cluster mode configuration.
+ * Manages the lifecycle of Hazelcast (embedded member or client).
+ * <p>
+ * Supports two modes:
+ * <ul>
+ *   <li><strong>Embedded mode</strong>: Creates Hazelcast member in Jenkins JVM</li>
+ *   <li><strong>Client mode</strong>: Connects to sidecar Hazelcast cluster</li>
+ * </ul>
+ * <p>
+ * Mode selection via {@link HazelcastInstanceProvider#getMode()}.
  *
  * @author CloudBees, Inc.
  */
@@ -52,6 +59,13 @@ public final class HazelcastManager {
 
     /**
      * Initializes Hazelcast if cluster mode is enabled.
+     * <p>
+     * Behavior depends on configured mode:
+     * <ul>
+     *   <li><strong>Embedded mode</strong>: Creates Hazelcast member in Jenkins JVM</li>
+     *   <li><strong>Client mode</strong>: Connects to sidecar Hazelcast cluster</li>
+     * </ul>
+     * <p>
      * This method is idempotent - calling it multiple times has no effect if already initialized.
      *
      * @return true if Hazelcast was initialized (or already initialized), false if cluster mode is disabled
@@ -70,25 +84,19 @@ public final class HazelcastManager {
             }
 
             try {
-                logger.info("Initializing Hazelcast for cluster mode...");
+                String mode = HazelcastInstanceProvider.getMode();
+                logger.info("Initializing Hazelcast in {} mode...", mode);
 
-                // Create Hazelcast configuration
-                com.hazelcast.config.Config config = HazelcastConfig.createConfig();
-
-                // Create Hazelcast instance
-                HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
-
-                // Register with provider
-                HazelcastInstanceProvider.setInstance(hazelcastInstance);
+                if ("client".equals(mode)) {
+                    // Client mode - connect to sidecar
+                    initializeClientMode();
+                } else {
+                    // Embedded mode - create member in JVM
+                    initializeEmbeddedMode();
+                }
 
                 initialized = true;
-
-                // Log cluster information
-                int clusterSize = hazelcastInstance.getCluster().getMembers().size();
-                logger.info("Hazelcast initialized successfully. Cluster: {}, Instance: {}, Members: {}",
-                        config.getClusterName(),
-                        hazelcastInstance.getName(),
-                        clusterSize);
+                logger.info("Hazelcast initialized successfully in {} mode", mode);
 
                 return true;
 
@@ -101,7 +109,54 @@ public final class HazelcastManager {
     }
 
     /**
+     * Initializes Hazelcast in embedded mode (member in Jenkins JVM).
+     */
+    private static void initializeEmbeddedMode() {
+        logger.info("Initializing Hazelcast embedded member...");
+
+        // Create Hazelcast configuration
+        com.hazelcast.config.Config config = HazelcastConfig.createConfig();
+
+        // Create Hazelcast instance
+        HazelcastInstance hazelcastInstance = Hazelcast.newHazelcastInstance(config);
+
+        // Register with provider
+        HazelcastInstanceProvider.setInstance(hazelcastInstance);
+
+        // Log cluster information
+        int clusterSize = hazelcastInstance.getCluster().getMembers().size();
+        logger.info("Hazelcast embedded member initialized. Cluster: {}, Instance: {}, Members: {}",
+                config.getClusterName(),
+                hazelcastInstance.getName(),
+                clusterSize);
+    }
+
+    /**
+     * Initializes Hazelcast in client mode (connect to sidecar).
+     */
+    private static void initializeClientMode() {
+        logger.info("Initializing Hazelcast client for sidecar connection...");
+
+        // Initialize client connection
+        HazelcastClientManager.initialize();
+
+        // Verify connection
+        if (!HazelcastClientManager.isConnected()) {
+            throw new RuntimeException("Failed to connect Hazelcast client to sidecar cluster");
+        }
+
+        logger.info("Hazelcast client connected to sidecar cluster");
+    }
+
+    /**
      * Shuts down Hazelcast gracefully.
+     * <p>
+     * Behavior depends on configured mode:
+     * <ul>
+     *   <li><strong>Embedded mode</strong>: Shuts down Hazelcast member</li>
+     *   <li><strong>Client mode</strong>: Disconnects from sidecar cluster</li>
+     * </ul>
+     * <p>
      * This method is idempotent - calling it multiple times has no effect if already shut down.
      */
     public static void shutdown() {
@@ -112,24 +167,31 @@ public final class HazelcastManager {
             }
 
             try {
-                logger.info("Shutting down Hazelcast...");
+                String mode = HazelcastInstanceProvider.getMode();
+                logger.info("Shutting down Hazelcast ({} mode)...", mode);
 
-                HazelcastInstance instance = HazelcastInstanceProvider.getInstance();
-                if (instance != null) {
-                    String instanceName = instance.getName();
+                if ("client".equals(mode)) {
+                    // Client mode - disconnect from sidecar
+                    HazelcastClientManager.shutdown();
+                } else {
+                    // Embedded mode - shutdown member
+                    HazelcastInstance instance = HazelcastInstanceProvider.getInstance();
+                    if (instance != null) {
+                        String instanceName = instance.getName();
 
-                    // Shutdown the instance
-                    instance.shutdown();
+                        // Shutdown the instance
+                        instance.shutdown();
 
-                    logger.info("Hazelcast instance shut down: {}", instanceName);
+                        logger.info("Hazelcast embedded member shut down: {}", instanceName);
+                    }
+
+                    // Clear the provider
+                    HazelcastInstanceProvider.clearInstance();
                 }
-
-                // Clear the provider
-                HazelcastInstanceProvider.clearInstance();
 
                 initialized = false;
 
-                logger.info("Hazelcast shutdown complete");
+                logger.info("Hazelcast shutdown complete ({} mode)", mode);
 
             } catch (Exception e) {
                 logger.error("Error during Hazelcast shutdown", e);
@@ -199,24 +261,35 @@ public final class HazelcastManager {
      * @return status string with cluster information
      */
     public static String getStatus() {
+        String mode = HazelcastInstanceProvider.getMode();
+
         if (!initialized) {
-            return "Hazelcast: Not initialized (cluster mode disabled or not started)";
+            return String.format("Hazelcast: Not initialized (cluster mode disabled or not started, mode: %s)", mode);
         }
 
         HazelcastInstance instance = HazelcastInstanceProvider.getInstance();
         if (instance == null) {
-            return "Hazelcast: Error - initialized flag is true but instance is null";
+            return String.format("Hazelcast: Error - initialized flag is true but instance is null (mode: %s)", mode);
         }
 
         if (!instance.getLifecycleService().isRunning()) {
-            return "Hazelcast: Not running";
+            return String.format("Hazelcast: Not running (mode: %s)", mode);
         }
 
-        int clusterSize = instance.getCluster().getMembers().size();
-        String clusterName = instance.getConfig().getClusterName();
-        String instanceName = instance.getName();
+        try {
+            int clusterSize = instance.getCluster().getMembers().size();
+            String clusterName;
+            if ("client".equals(mode)) {
+                clusterName = "N/A (client)";
+            } else {
+                clusterName = instance.getConfig().getClusterName();
+            }
+            String instanceName = instance.getName();
 
-        return String.format("Hazelcast: Running | Cluster: %s | Instance: %s | Members: %d",
-                clusterName, instanceName, clusterSize);
+            return String.format("Hazelcast: Running | Mode: %s | Cluster: %s | Instance: %s | Members: %d",
+                    mode, clusterName, instanceName, clusterSize);
+        } catch (Exception e) {
+            return String.format("Hazelcast: Error getting status (mode: %s): %s", mode, e.getMessage());
+        }
     }
 }

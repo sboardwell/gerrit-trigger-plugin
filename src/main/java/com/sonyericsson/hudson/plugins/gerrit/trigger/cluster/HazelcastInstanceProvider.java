@@ -31,13 +31,42 @@ import org.slf4j.LoggerFactory;
 
 /**
  * Singleton provider for the Hazelcast instance.
- * Provides thread-safe access to the Hazelcast cluster member.
+ * <p>
+ * Supports two modes:
+ * <ul>
+ *   <li><strong>Embedded mode</strong> (default): Hazelcast runs in Jenkins JVM</li>
+ *   <li><strong>Client mode</strong>: Jenkins connects to external Hazelcast (sidecar)</li>
+ * </ul>
+ * <p>
+ * Mode selection via system property:
+ * {@code -Dgerrit.trigger.hazelcast.mode=client} (or "embedded")
  *
  * @author CloudBees, Inc.
  */
 public final class HazelcastInstanceProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(HazelcastInstanceProvider.class);
+
+    /**
+     * System property to select Hazelcast mode.
+     * Values: "embedded" (default) or "client" (sidecar)
+     */
+    private static final String MODE_PROPERTY = "gerrit.trigger.hazelcast.mode";
+
+    /**
+     * Embedded mode (Hazelcast in Jenkins JVM).
+     */
+    private static final String MODE_EMBEDDED = "embedded";
+
+    /**
+     * Client mode (connect to sidecar Hazelcast).
+     */
+    private static final String MODE_CLIENT = "client";
+
+    /**
+     * Default mode if not specified.
+     */
+    private static final String DEFAULT_MODE = MODE_EMBEDDED;
 
     private static volatile HazelcastInstance instance;
     private static final Object LOCK = new Object();
@@ -81,13 +110,24 @@ public final class HazelcastInstanceProvider {
     }
 
     /**
-     * Gets the Hazelcast instance.
+     * Gets the Hazelcast instance based on the configured mode.
+     * <p>
+     * In embedded mode, returns the embedded Hazelcast member instance.
+     * In client mode, returns the client connection to the sidecar cluster.
      *
      * @return the Hazelcast instance, or null if not initialized
      */
     @CheckForNull
     public static HazelcastInstance getInstance() {
-        return instance;
+        String mode = getMode();
+
+        if (MODE_CLIENT.equals(mode)) {
+            // Client mode - return sidecar client instance
+            return HazelcastClientManager.getInstance();
+        } else {
+            // Embedded mode - return embedded member instance
+            return instance;
+        }
     }
 
     /**
@@ -108,12 +148,38 @@ public final class HazelcastInstanceProvider {
 
     /**
      * Checks if the Hazelcast instance is initialized.
+     * <p>
+     * Checks the appropriate instance based on the configured mode.
      *
      * @return true if instance is initialized and running
      */
     public static boolean isInitialized() {
-        HazelcastInstance hz = instance;
-        return hz != null && hz.getLifecycleService().isRunning();
+        String mode = getMode();
+
+        if (MODE_CLIENT.equals(mode)) {
+            // Client mode - check if client is connected
+            return HazelcastClientManager.isConnected();
+        } else {
+            // Embedded mode - check if member is running
+            HazelcastInstance hz = instance;
+            return hz != null && hz.getLifecycleService().isRunning();
+        }
+    }
+
+    /**
+     * Gets the configured Hazelcast mode.
+     * <p>
+     * Reads from system property {@link #MODE_PROPERTY}.
+     *
+     * @return "embedded" or "client"
+     */
+    public static String getMode() {
+        String mode = System.getProperty(MODE_PROPERTY, DEFAULT_MODE);
+        if (!MODE_EMBEDDED.equals(mode) && !MODE_CLIENT.equals(mode)) {
+            logger.warn("Unknown Hazelcast mode '{}', using default '{}'", mode, DEFAULT_MODE);
+            return DEFAULT_MODE;
+        }
+        return mode;
     }
 
     /**
