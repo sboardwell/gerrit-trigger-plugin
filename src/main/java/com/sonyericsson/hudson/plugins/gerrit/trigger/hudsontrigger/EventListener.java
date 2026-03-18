@@ -23,6 +23,8 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger;
 
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventClaimService;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.ManualPatchsetCreated;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
@@ -123,6 +125,15 @@ public final class EventListener implements GerritEventListener {
         }
         if (event instanceof GerritTriggeredEvent) {
             GerritTriggeredEvent triggeredEvent = (GerritTriggeredEvent)event;
+
+            // Try to claim the event in cluster mode to prevent duplicate builds
+            // If claim fails, another replica has already claimed it - skip processing
+            if (!EventClaimService.tryClaimEvent(triggeredEvent)) {
+                logger.trace("Event already claimed by another replica, skipping: {} (job: {})",
+                        EventIdentifier.generateEventId(triggeredEvent), job);
+                return;
+            }
+
             synchronized (this) {
                 if (t.isInteresting(triggeredEvent)) {
                     logger.trace("The event is interesting.");
@@ -163,6 +174,15 @@ public final class EventListener implements GerritEventListener {
             // to just return now without processing the event.
             return;
         }
+
+        // Try to claim the event in cluster mode to prevent duplicate builds
+        // If claim fails, another replica has already claimed it - skip processing
+        if (!EventClaimService.tryClaimEvent(event)) {
+            logger.info("Event already claimed by another replica, skipping: {} (job: {})",
+                    EventIdentifier.generateEventId(event), job);
+            return;
+        }
+
         synchronized (this) {
             if (t.isInteresting(event)) {
                 logger.trace("The event is interesting.");
@@ -209,6 +229,15 @@ public final class EventListener implements GerritEventListener {
             // to just return now without processing the event.
             return;
         }
+
+        // Try to claim the event in cluster mode to prevent duplicate builds
+        // If claim fails, another replica has already claimed it - skip processing
+        if (!EventClaimService.tryClaimEvent(event)) {
+            logger.info("Event already claimed by another replica, skipping: {} (job: {})",
+                    EventIdentifier.generateEventId(event), job);
+            return;
+        }
+
         synchronized (this) {
             if (t.isInteresting(event) && t.commentAddedMatch(event)) {
                 logger.trace("The event is interesting.");
