@@ -1,8 +1,6 @@
 /*
  * The MIT License
  *
- * Copyright 2024 CloudBees, Inc.
- *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
  * in the Software without restriction, including without limitation the rights
@@ -234,7 +232,10 @@ public final class EventClaimService {
             synchronized (EventClaimService.class) {
                 if (instanceId == null) {
                     try {
-                        instanceId = InetAddress.getLocalHost().getHostName();
+                        instanceId = System.getenv("HOSTNAME");
+                        if (instanceId == null || "".equals(instanceId.trim())){
+                            instanceId = InetAddress.getLocalHost().getHostName();
+                        }
                     } catch (Exception e) {
                         logger.warn("Could not determine hostname, using fallback", e);
                         instanceId = "unknown-" + System.currentTimeMillis();
