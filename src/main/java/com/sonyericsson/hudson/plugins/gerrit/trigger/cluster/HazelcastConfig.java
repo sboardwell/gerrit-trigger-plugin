@@ -142,12 +142,13 @@ public final class HazelcastConfig {
         config.setProperty("hazelcast.operation.call.timeout.millis", operationTimeout);
         logger.info("Hazelcast operation timeout: {} ms", operationTimeout);
 
-        // Register Compact Serializer for EventClaim
+        // Register Compact Serializers for event claiming and build memory
         // This enables cross-JVM serialization compatibility with sidecar deployment
         config.getSerializationConfig()
                 .getCompactSerializationConfig()
-                .addSerializer(new EventClaimSerializer());
-        logger.debug("Registered Compact Serializer for EventClaim");
+                .addSerializer(new EventClaimSerializer())
+                .addSerializer(new MemoryImprintDataSerializer());
+        logger.debug("Registered Compact Serializers for EventClaim and MemoryImprintData");
 
         logger.info("Hazelcast configuration created for cluster: {}", clusterName);
 

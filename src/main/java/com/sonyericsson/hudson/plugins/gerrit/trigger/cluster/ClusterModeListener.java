@@ -26,6 +26,7 @@ package com.sonyericsson.hudson.plugins.gerrit.trigger.cluster;
 
 import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemoryManager;
 import hudson.Extension;
 import hudson.XmlFile;
 import hudson.model.Saveable;
@@ -40,11 +41,12 @@ import org.slf4j.LoggerFactory;
  * <ul>
  *   <li>Detecting when cluster mode is enabled/disabled via UI or JCasC</li>
  *   <li>Initializing Hazelcast when cluster mode is enabled</li>
+ *   <li>Migrating BuildMemory data between local and distributed storage</li>
  *   <li>Shutting down Hazelcast when cluster mode is disabled</li>
  * </ul>
  * <p>
- * <strong>Note:</strong> This listener does NOT handle data migration (BuildMemory, RunningJobs, etc.)
- * at this stage. Data migration will be implemented in a future iteration.
+ * Data migration is handled through {@link BuildMemoryManager}, which provides
+ * a coordination layer between this listener and the actual data structures.
  *
  * @author ironcero
  */
@@ -93,25 +95,33 @@ public final class ClusterModeListener extends SaveableListener {
     }
 
     /**
-     * Enables cluster mode by initializing Hazelcast.
+     * Enables cluster mode by initializing Hazelcast and migrating data to distributed storage.
      * <p>
-     * <strong>Future enhancement:</strong> This method will eventually trigger data migration
-     * from local structures (BuildMemory, RunningJobs, etc.) to Hazelcast distributed structures.
+     * This method:
+     * <ol>
+     *   <li>Initializes Hazelcast cluster</li>
+     *   <li>Migrates BuildMemory from local TreeMap to Hazelcast IMap</li>
+     * </ol>
+     * <p>
+     * If migration fails, the plugin continues to work (new data will use distributed mode).
      */
     private void enableClusterMode() {
         logger.info("Enabling cluster mode...");
         try {
             boolean initialized = HazelcastManager.initialize();
             if (initialized) {
-                logger.info("Cluster mode enabled successfully. Hazelcast status: {}",
-                        HazelcastManager.getStatus());
+                logger.info("Hazelcast initialized successfully. Status: {}", HazelcastManager.getStatus());
 
-                // TODO: Future enhancement - Migrate local data to Hazelcast
-                // - Copy BuildMemory TreeMap -> Hazelcast IMap
-                // - Copy RunningJobs ConcurrentHashMap -> Hazelcast IMap
-                // - Initialize event claim tracking in Hazelcast
-                // - Sync GerritProjectList across replicas
-                logger.debug("Data migration not yet implemented - local data remains local");
+                // Migrate BuildMemory data to distributed storage
+                logger.info("Migrating BuildMemory to distributed storage...");
+                BuildMemoryManager.migrateToDistributed();
+
+                // TODO: Future enhancements
+                // - Migrate RunningJobs ConcurrentHashMap -> Hazelcast IMap
+                // - Migrate GerritProjectList -> Hazelcast distributed structure
+                // - Migrate ReplicationCache -> Hazelcast IMap
+
+                logger.info("Cluster mode enabled successfully");
             } else {
                 logger.warn("Cluster mode initialization returned false. Check configuration.");
             }
@@ -122,20 +132,29 @@ public final class ClusterModeListener extends SaveableListener {
     }
 
     /**
-     * Disables cluster mode by shutting down Hazelcast.
+     * Disables cluster mode by migrating data to local storage and shutting down Hazelcast.
      * <p>
-     * <strong>Future enhancement:</strong> This method will eventually trigger data migration
-     * from Hazelcast distributed structures back to local structures.
+     * This method:
+     * <ol>
+     *   <li>Migrates BuildMemory from Hazelcast IMap to local TreeMap</li>
+     *   <li>Shuts down Hazelcast cluster</li>
+     * </ol>
+     * <p>
+     * If migration fails, the plugin continues to work in local mode (data in Hazelcast will be lost).
      */
     private void disableClusterMode() {
         logger.info("Disabling cluster mode...");
         try {
-            // TODO: Future enhancement - Migrate Hazelcast data to local structures
-            // - Copy Hazelcast IMap -> BuildMemory TreeMap
-            // - Copy Hazelcast IMap -> RunningJobs ConcurrentHashMap
-            // - Preserve event claim state if possible
-            logger.debug("Data migration not yet implemented - data in Hazelcast will be lost");
+            // Migrate BuildMemory data back to local storage
+            logger.info("Migrating BuildMemory to local storage...");
+            BuildMemoryManager.migrateToLocal();
 
+            // TODO: Future enhancements
+            // - Migrate RunningJobs from Hazelcast IMap -> ConcurrentHashMap
+            // - Migrate GerritProjectList from Hazelcast -> local
+            // - Note: Event claims are ephemeral and don't need migration
+
+            // Shutdown Hazelcast after data migration
             HazelcastManager.shutdown();
             logger.info("Cluster mode disabled successfully. Plugin now running in standalone mode.");
         } catch (Exception e) {

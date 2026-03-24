@@ -25,6 +25,7 @@
 package com.sonyericsson.hudson.plugins.gerrit.trigger;
 
 import com.sonyericsson.hudson.plugins.gerrit.trigger.dependency.DependencyQueueTaskDispatcher;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.ToGerritRunListener;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.replication.ReplicationQueueTaskDispatcher;
 import com.sonymobile.tools.gerrit.gerritevents.GerritHandler;
 import com.sonymobile.tools.gerrit.gerritevents.GerritSendCommandQueue;
@@ -746,6 +747,16 @@ public class PluginImpl extends GlobalConfiguration {
      */
     public void stop() {
         active = false;
+
+        // Shutdown ToGerritRunListener notification executor
+        try {
+            ToGerritRunListener listener = ToGerritRunListener.getInstance();
+            if (listener != null) {
+                listener.shutdown();
+            }
+        } catch (Exception e) {
+            logger.error("Error shutting down ToGerritRunListener notification executor", e);
+        }
 
         // Shutdown Hazelcast first (before stopping servers)
         try {

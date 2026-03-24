@@ -130,12 +130,13 @@ public final class HazelcastClientManager {
             clientConfig.setClusterName(clusterName);
             logger.info("Hazelcast client cluster name: {}", clusterName);
 
-            // Register Compact Serializer for EventClaim
+            // Register Compact Serializers for event claiming and build memory
             // This enables cross-JVM serialization without requiring the class on the sidecar
             clientConfig.getSerializationConfig()
                     .getCompactSerializationConfig()
-                    .addSerializer(new EventClaimSerializer());
-            logger.debug("Registered Compact Serializer for EventClaim");
+                    .addSerializer(new EventClaimSerializer())
+                    .addSerializer(new MemoryImprintDataSerializer());
+            logger.debug("Registered Compact Serializers for EventClaim and MemoryImprintData");
 
             // Network addresses (sidecar endpoints)
             String addresses = System.getProperty(ADDRESSES_PROPERTY, DEFAULT_ADDRESS);

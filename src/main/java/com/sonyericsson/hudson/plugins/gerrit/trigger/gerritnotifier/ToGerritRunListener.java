@@ -23,6 +23,12 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier;
 
+import com.hazelcast.core.HazelcastInstance;
+import com.hazelcast.map.IMap;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
@@ -49,6 +55,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import jenkins.model.Jenkins;
 
@@ -72,6 +84,55 @@ public final class ToGerritRunListener extends RunListener<Run> {
     private final transient BuildMemory memory = new BuildMemory();
 
     /**
+     * Hazelcast map name for notification claim flags.
+     */
+    private static final String NOTIFICATION_FLAGS_MAP = "gerrit-trigger-notification-flags";
+
+    /**
+     * Thread pool size for async notifications.
+     */
+    private static final int NOTIFICATION_THREAD_POOL_SIZE = 10;
+
+    /**
+     * Core thread pool size for notifications.
+     */
+    private static final int NOTIFICATION_CORE_POOL_SIZE = 2;
+
+    /**
+     * Thread keep-alive time in seconds.
+     */
+    private static final long THREAD_KEEP_ALIVE_TIME = 60L;
+
+    /**
+     * Notification queue size.
+     */
+    private static final int NOTIFICATION_QUEUE_SIZE = 100;
+
+    /**
+     * Notification claim TTL in minutes.
+     */
+    private static final int NOTIFICATION_CLAIM_TTL_MINUTES = 10;
+
+    /**
+     * Shutdown timeout in seconds.
+     */
+    private static final int SHUTDOWN_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Executor service for async notification processing.
+     * Prevents slow Gerrit notifications from blocking build completions.
+     */
+    private final ExecutorService notificationExecutor;
+
+    /**
+     * Constructor - initializes the notification thread pool.
+     */
+    public ToGerritRunListener() {
+        super();
+        this.notificationExecutor = createNotificationExecutor();
+    }
+
+    /**
      * Returns the registered instance of this class from the list of all listeners.
      *
      * @return the instance.
@@ -88,6 +149,151 @@ public final class ToGerritRunListener extends RunListener<Run> {
         } catch (IllegalStateException e) {
             logger.error("INITIALIZATION ERROR? Could not find the registered instance.", e);
             return null;
+        }
+    }
+
+    /**
+     * Returns the BuildMemory instance managed by this listener.
+     * <p>
+     * This method is primarily used by
+     * {@link com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemoryManager}
+     * to trigger data migrations when cluster mode is enabled/disabled.
+     *
+     * @return the BuildMemory instance
+     */
+    @NonNull
+    public BuildMemory getMemory() {
+        return memory;
+    }
+
+    /**
+     * Creates the notification executor thread pool.
+     *
+     * @return configured ExecutorService
+     */
+    private ExecutorService createNotificationExecutor() {
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r, "gerrit-notification-" + threadNumber.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+            }
+        };
+
+        return new ThreadPoolExecutor(
+                NOTIFICATION_CORE_POOL_SIZE,  // core pool size
+                NOTIFICATION_THREAD_POOL_SIZE,  // maximum pool size
+                THREAD_KEEP_ALIVE_TIME, TimeUnit.SECONDS,  // keep-alive time
+                new LinkedBlockingQueue<>(NOTIFICATION_QUEUE_SIZE),  // bounded queue
+                threadFactory,
+                new ThreadPoolExecutor.CallerRunsPolicy()  // rejection policy - back-pressure
+        );
+    }
+
+    /**
+     * Checks if cluster mode is enabled.
+     *
+     * @return true if cluster mode is enabled
+     */
+    private boolean isClusterModeEnabled() {
+        try {
+            PluginImpl plugin = PluginImpl.getInstance();
+            if (plugin != null) {
+                PluginConfig config = plugin.getPluginConfig();
+                return config != null && config.isClusterModeEnabled();
+            }
+        } catch (Exception e) {
+            logger.debug("Error checking cluster mode status", e);
+        }
+        return false;
+    }
+
+    /**
+     * Attempts to claim the right to send notification for an event.
+     * Uses atomic putIfAbsent to ensure only one replica sends the notification.
+     *
+     * @param event the event
+     * @return true if this replica successfully claimed the right, false if another replica claimed it
+     */
+    private boolean tryClaimNotificationRight(GerritTriggeredEvent event) {
+        if (!isClusterModeEnabled()) {
+            return true; // Always send in local mode
+        }
+
+        try {
+            HazelcastInstance hz = HazelcastInstanceProvider.getInstance();
+            if (hz == null) {
+                logger.warn("Hazelcast unavailable for notification claim, proceeding with local mode");
+                return true; // Fail-safe: send notification
+            }
+
+            IMap<String, Boolean> notificationFlags = hz.getMap(NOTIFICATION_FLAGS_MAP);
+            String eventId = EventIdentifier.generateEventId(event);
+            String flagKey = "notified-" + eventId;
+
+            // Atomic operation: set flag if not already set
+            Boolean previousValue = notificationFlags.putIfAbsent(
+                    flagKey, Boolean.TRUE, NOTIFICATION_CLAIM_TTL_MINUTES, TimeUnit.MINUTES);
+
+            boolean claimed = (previousValue == null);
+            if (claimed) {
+                logger.debug("Successfully claimed notification right for event: {}", eventId);
+            } else {
+                logger.debug("Another replica already claimed notification for event: {}", eventId);
+            }
+            return claimed;
+        } catch (Exception e) {
+            logger.error("Error claiming notification right, proceeding with send to avoid notification loss", e);
+            return true; // Fail-safe: send notification
+        }
+    }
+
+    /**
+     * Releases the notification claim for an event.
+     *
+     * @param event the event
+     */
+    private void releaseNotificationRight(GerritTriggeredEvent event) {
+        if (!isClusterModeEnabled()) {
+            return;
+        }
+
+        try {
+            HazelcastInstance hz = HazelcastInstanceProvider.getInstance();
+            if (hz != null) {
+                IMap<String, Boolean> notificationFlags = hz.getMap(NOTIFICATION_FLAGS_MAP);
+                String eventId = EventIdentifier.generateEventId(event);
+                String flagKey = "notified-" + eventId;
+                notificationFlags.delete(flagKey);
+                logger.trace("Released notification claim for event: {}", eventId);
+            }
+        } catch (Exception e) {
+            logger.warn("Error releasing notification claim (non-critical)", e);
+        }
+    }
+
+    /**
+     * Shuts down the notification executor gracefully.
+     * Called during plugin shutdown.
+     */
+    public void shutdown() {
+        logger.info("Shutting down notification executor, waiting for in-flight notifications...");
+        notificationExecutor.shutdown();
+        try {
+            if (!notificationExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                logger.warn("Notification executor did not terminate in time, forcing shutdown");
+                List<Runnable> pendingTasks = notificationExecutor.shutdownNow();
+                logger.warn("Dropped {} pending notification tasks", pendingTasks.size());
+            } else {
+                logger.info("Notification executor shutdown complete");
+            }
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for notification executor shutdown");
+            notificationExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -158,7 +364,17 @@ public final class ToGerritRunListener extends RunListener<Run> {
                 }
 
                 updateTriggerContexts(r);
-                allBuildsCompleted(event, cause, listener);
+
+                // Check if all builds complete, and if so, spawn async notification
+                if (memory.isAllBuildsCompleted(event)) {
+                    logger.debug("All builds completed for event, spawning async notification");
+                    // Spawn async notification thread - release lock immediately!
+                    // This prevents slow Gerrit API calls from blocking other build completions
+                    notificationExecutor.submit(() -> handleNotification(event, cause, listener));
+                } else {
+                    logger.info("Waiting for more builds to complete for cause [{}]. Status: \n{}",
+                            cause, memory.getStatusReport(event));
+                }
             }
         }
     }
@@ -175,28 +391,63 @@ public final class ToGerritRunListener extends RunListener<Run> {
     }
 
     /**
+     * Handles notification sending in an async thread.
+     * Uses atomic claim mechanism to ensure only one replica sends notification in HA/HS mode.
+     * This method is NOT synchronized as it runs in a separate thread.
+     *
+     * @param event   the Gerrit Event which needs notification.
+     * @param cause   the Gerrit Cause which triggered the build initially.
+     * @param listener   the Jenkins listener.
+     */
+    private void handleNotification(GerritTriggeredEvent event, GerritCause cause, TaskListener listener) {
+        try {
+            // Try to claim the notification right (atomic operation in cluster mode)
+            if (tryClaimNotificationRight(event)) {
+                // We successfully claimed it - send the notification
+                try {
+                    logger.info("All Builds are completed for cause: {}, sending notification", cause);
+                    if (event instanceof GerritEventLifecycle) {
+                        ((GerritEventLifecycle)event).fireAllBuildsCompleted();
+                    }
+                    GerritNotifierFactory.getInstance().queueBuildCompleted(memory.getMemoryImprint(event), listener);
+                    logger.info("Successfully sent notification for event: {}", event);
+                } finally {
+                    // Always clean up, even if notification fails
+                    memory.forget(event);
+                    releaseNotificationRight(event);
+                }
+            } else {
+                // Another replica claimed it - we still need to clean up local memory
+                logger.debug("Another replica handling notification for event: {}, cleaning up local memory", event);
+                memory.forget(event);
+            }
+        } catch (Exception e) {
+            logger.error("Error sending notification for event: " + event, e);
+            // Clean up even on error to prevent memory leaks
+            try {
+                memory.forget(event);
+                releaseNotificationRight(event);
+            } catch (Exception cleanupEx) {
+                logger.error("Error during cleanup after notification failure", cleanupEx);
+            }
+        }
+    }
+
+    /**
      * Manages the end of a Gerrit Event. Should be called after each build related to an event completes if that build
      * should report back to Gerrit.
+     *
+     * @deprecated This method is kept for backwards compatibility. The notification is now handled asynchronously
+     * via {@link #handleNotification(GerritTriggeredEvent, GerritCause, TaskListener)}.
      *
      * @param event   the Gerrit Event which may need to be completed.
      * @param cause   the Gerrit Cause which triggered the build initially.
      * @param listener   the Jenkins listener.
      */
+    @Deprecated
     public synchronized void allBuildsCompleted(GerritTriggeredEvent event, GerritCause cause, TaskListener listener) {
-        if (memory.isAllBuildsCompleted(event)) {
-            try {
-                logger.info("All Builds are completed for cause: {}", cause);
-                if (event instanceof GerritEventLifecycle) {
-                    ((GerritEventLifecycle)event).fireAllBuildsCompleted();
-                }
-                GerritNotifierFactory.getInstance().queueBuildCompleted(memory.getMemoryImprint(event), listener);
-            } finally {
-                memory.forget(event);
-            }
-        } else {
-            logger.info("Waiting for more builds to complete for cause [{}]. Status: \n{}",
-                    cause, memory.getStatusReport(event));
-        }
+        // This method is now a no-op - notification is handled asynchronously in onCompleted()
+        logger.debug("allBuildsCompleted called (deprecated method) - notification handled asynchronously");
     }
 
     /**

@@ -233,7 +233,7 @@ public final class EventClaimService {
                 if (instanceId == null) {
                     try {
                         instanceId = System.getenv("HOSTNAME");
-                        if (instanceId == null || "".equals(instanceId.trim())){
+                        if (instanceId == null || "".equals(instanceId.trim())) {
                             instanceId = InetAddress.getLocalHost().getHostName();
                         }
                     } catch (Exception e) {
