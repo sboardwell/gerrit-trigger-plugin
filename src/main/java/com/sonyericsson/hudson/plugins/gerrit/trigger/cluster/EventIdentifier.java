@@ -39,8 +39,11 @@ import com.sonymobile.tools.gerrit.gerritevents.dto.events.RefUpdated;
  *   <li>Change number and patchset number (for change-based events)</li>
  *   <li>Project and ref name (for ref-updated events)</li>
  *   <li>Event type</li>
- *   <li>Received timestamp</li>
+ *   <li>Server-side timestamp (eventCreatedOn from Gerrit server)</li>
  * </ul>
+ * <p>
+ * <b>Important:</b> Uses {@code eventCreatedOn} (server timestamp) rather than {@code receivedOn}
+ * (replica timestamp) to ensure identical event IDs across all replicas receiving the same event.
  *
  * @author CloudBees, Inc.
  */
@@ -94,12 +97,16 @@ public final class EventIdentifier {
             return generateFallbackEventId(event);
         }
 
+        // Use server-side timestamp (eventCreatedOn) for consistency across replicas
+        // Fall back to receivedOn if eventCreatedOn is not available
+        long timestamp = getEventTimestamp(event);
+
         // Format: change-<number>-<patchset>-<type>-<timestamp>
         return String.format("change-%s-%s-%s-%d",
                 change.getNumber(),
                 patchSet.getNumber(),
                 sanitizeEventType(event.getEventType().getTypeValue()),
-                event.getReceivedOn());
+                timestamp);
     }
 
     /**
@@ -125,12 +132,16 @@ public final class EventIdentifier {
             shortRev = "unknown";
         }
 
+        // Use server-side timestamp (eventCreatedOn) for consistency across replicas
+        // Fall back to receivedOn if eventCreatedOn is not available
+        long timestamp = getEventTimestamp(event);
+
         // Format: ref-<project>-<refName>-<shortRev>-<timestamp>
         return String.format("ref-%s-%s-%s-%d",
                 project,
                 refName,
                 shortRev,
-                event.getReceivedOn());
+                timestamp);
     }
 
     /**
@@ -140,12 +151,37 @@ public final class EventIdentifier {
      * @return event ID in format: event-{type}-{timestamp}-{hash}
      */
     private static String generateFallbackEventId(GerritTriggeredEvent event) {
+        // Use server-side timestamp (eventCreatedOn) for consistency across replicas
+        // Fall back to receivedOn if eventCreatedOn is not available
+        long timestamp = getEventTimestamp(event);
+
         // Format: event-<type>-<timestamp>-<hash>
         // Hash provides uniqueness when timestamp alone isn't sufficient
         return String.format("event-%s-%d-%08x",
                 sanitizeEventType(event.getEventType().getTypeValue()),
-                event.getReceivedOn(),
+                timestamp,
                 event.hashCode());
+    }
+
+    /**
+     * Gets the event timestamp, preferring server-side eventCreatedOn over replica-local receivedOn.
+     * <p>
+     * This ensures that the same Gerrit event produces the same event ID across all Jenkins replicas,
+     * which is critical for distributed event claiming to work correctly.
+     * <p>
+     * Falls back to receivedOn if eventCreatedOn is null (defensive programming for older Gerrit
+     * versions or events that don't populate this field).
+     *
+     * @param event the Gerrit event
+     * @return timestamp in milliseconds since epoch
+     */
+    private static long getEventTimestamp(GerritTriggeredEvent event) {
+        if (event.getEventCreatedOn() != null) {
+            // Prefer server-side timestamp (same across all replicas)
+            return event.getEventCreatedOn().getTime();
+        }
+        // Fallback to replica-local timestamp (may differ between replicas)
+        return event.getReceivedOn();
     }
 
     /**
