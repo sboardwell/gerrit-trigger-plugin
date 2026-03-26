@@ -23,6 +23,7 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.cluster;
 
+import com.google.common.annotations.VisibleForTesting;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -62,6 +63,16 @@ public final class ClusterModeProvider {
      */
     private static final boolean CLUSTER_MODE_ENABLED;
 
+    /**
+     * Test override for cluster mode.
+     * When non-null, this value is returned by {@link #isClusterModeEnabled()} instead of
+     * the system property value. This allows tests to control cluster mode behavior without
+     * setting system properties.
+     * <p>
+     * <strong>FOR TESTING ONLY</strong> - Do not use in production code.
+     */
+    private static volatile Boolean testOverride = null;
+
     static {
         CLUSTER_MODE_ENABLED = Boolean.getBoolean(CLUSTER_MODE_PROPERTY);
         String status;
@@ -87,10 +98,44 @@ public final class ClusterModeProvider {
      * <p>
      * This value is determined at startup by reading the system property
      * {@link #CLUSTER_MODE_PROPERTY} and cannot change during runtime.
+     * <p>
+     * In test environments, this can be overridden using {@link #setTestMode(Boolean)}.
      *
-     * @return true if cluster mode is enabled via system property
+     * @return true if cluster mode is enabled via system property (or test override)
      */
     public static boolean isClusterModeEnabled() {
+        // Check test override first (for testing only)
+        if (testOverride != null) {
+            return testOverride;
+        }
         return CLUSTER_MODE_ENABLED;
+    }
+
+    /**
+     * Sets a test override for cluster mode status.
+     * <p>
+     * <strong>FOR TESTING ONLY</strong> - This method should only be called from test code.
+     * When set, {@link #isClusterModeEnabled()} will return this value instead of reading
+     * the system property.
+     * <p>
+     * <strong>Important:</strong> Always call {@link #clearTestMode()} after the test
+     * (typically in an {@code @After} method) to avoid affecting other tests.
+     *
+     * @param enabled the test cluster mode status (true = enabled, false = disabled)
+     */
+    @VisibleForTesting
+    public static void setTestMode(Boolean enabled) {
+        testOverride = enabled;
+    }
+
+    /**
+     * Clears the test override, restoring normal system property behavior.
+     * <p>
+     * <strong>FOR TESTING ONLY</strong> - Should be called in {@code @After} methods
+     * to clean up test state.
+     */
+    @VisibleForTesting
+    public static void clearTestMode() {
+        testOverride = null;
     }
 }

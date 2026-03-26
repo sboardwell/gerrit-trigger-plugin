@@ -26,6 +26,7 @@ package com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemory;
@@ -139,6 +140,9 @@ public class AsyncNotificationTest {
      */
     @After
     public void tearDown() {
+        // Clear cluster mode test override
+        ClusterModeProvider.clearTestMode();
+
         if (listener != null) {
             listener.shutdown();
         }
@@ -375,7 +379,7 @@ public class AsyncNotificationTest {
 
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(false);
+        ClusterModeProvider.setTestMode(false);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);
@@ -398,7 +402,7 @@ public class AsyncNotificationTest {
         // Mock plugin config with cluster mode enabled
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(true);
+        ClusterModeProvider.setTestMode(true);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);
@@ -442,7 +446,7 @@ public class AsyncNotificationTest {
         // Mock plugin config with cluster mode enabled
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(true);
+        ClusterModeProvider.setTestMode(true);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);
