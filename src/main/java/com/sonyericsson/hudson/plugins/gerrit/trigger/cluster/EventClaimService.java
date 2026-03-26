@@ -23,8 +23,6 @@ package com.sonyericsson.hudson.plugins.gerrit.trigger.cluster;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -252,13 +250,7 @@ public final class EventClaimService {
      * @return true if cluster mode is enabled and Hazelcast should be used
      */
     private static boolean isClusterModeEnabled() {
-        PluginImpl plugin = PluginImpl.getInstance();
-        if (plugin == null) {
-            return false;
-        }
-
-        PluginConfig config = plugin.getPluginConfig();
-        return config != null && config.isClusterModeEnabled();
+        return ClusterModeProvider.isClusterModeEnabled();
     }
 
     /**

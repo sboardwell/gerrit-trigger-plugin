@@ -28,12 +28,10 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.BuildMemoryKey;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EntryData;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.MemoryImprintData;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemory.MemoryImprint.Entry;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.GerritCause;
@@ -120,21 +118,12 @@ public class BuildMemory {
     private transient IMap<BuildMemoryKey, MemoryImprintData> distributedMemory = null;
 
     /**
-     * Checks if cluster mode is enabled.
+     * Checks if cluster mode is enabled via system property.
      *
      * @return true if cluster mode is enabled
      */
     private boolean isClusterModeEnabled() {
-        try {
-            PluginImpl plugin = PluginImpl.getInstance();
-            if (plugin != null) {
-                PluginConfig config = plugin.getPluginConfig();
-                return config != null && config.isClusterModeEnabled();
-            }
-        } catch (Exception e) {
-            logger.debug("Error checking cluster mode status", e);
-        }
-        return false;
+        return com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider.isClusterModeEnabled();
     }
 
     /**

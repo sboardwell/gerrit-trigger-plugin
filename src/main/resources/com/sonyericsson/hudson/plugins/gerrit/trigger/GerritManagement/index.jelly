@@ -61,11 +61,6 @@
                                value="${it.pluginConfig.replicationCacheExpirationInMinutes}"
                                default="${com.sonyericsson.hudson.plugins.gerrit.trigger.replication.ReplicationCache.DEFAULT_EXPIRATION_IN_MINUTES}"/>
                 </f:entry>
-                <f:entry title="${%Cluster Mode}"
-                         help="/plugin/gerrit-trigger/help-ClusterMode.html">
-                    <f:checkbox name="clusterModeEnabled"
-                                checked="${it.pluginConfig.clusterModeEnabled}"/>
-                </f:entry>
                 <f:advanced>
                     <f:section title="${%Filter Received Event Types}">
                         <f:entry title="${%Event List}" help="/plugin/gerrit-trigger/help-EventsFilter.html">

@@ -25,10 +25,8 @@ package com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier;
 
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
@@ -194,21 +192,12 @@ public final class ToGerritRunListener extends RunListener<Run> {
     }
 
     /**
-     * Checks if cluster mode is enabled.
+     * Checks if cluster mode is enabled via system property.
      *
      * @return true if cluster mode is enabled
      */
     private boolean isClusterModeEnabled() {
-        try {
-            PluginImpl plugin = PluginImpl.getInstance();
-            if (plugin != null) {
-                PluginConfig config = plugin.getPluginConfig();
-                return config != null && config.isClusterModeEnabled();
-            }
-        } catch (Exception e) {
-            logger.debug("Error checking cluster mode status", e);
-        }
-        return false;
+        return com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider.isClusterModeEnabled();
     }
 
     /**

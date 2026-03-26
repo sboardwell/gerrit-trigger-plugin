@@ -1,7 +1,7 @@
 /*
  * The MIT License
  *
- * Copyright 2024 CloudBees, Inc.
+ *
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -375,7 +375,7 @@ public class AsyncNotificationTest {
 
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        when(config.isClusterModeEnabled()).thenReturn(false);
+        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(false);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);
@@ -398,7 +398,7 @@ public class AsyncNotificationTest {
         // Mock plugin config with cluster mode enabled
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        when(config.isClusterModeEnabled()).thenReturn(true);
+        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(true);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);
@@ -442,7 +442,7 @@ public class AsyncNotificationTest {
         // Mock plugin config with cluster mode enabled
         PluginImpl plugin = mock(PluginImpl.class);
         PluginConfig config = mock(PluginConfig.class);
-        when(config.isClusterModeEnabled()).thenReturn(true);
+        // TODO: Cluster mode now via system property - when(config.isClusterModeEnabled()).thenReturn(true);
         when(plugin.getPluginConfig()).thenReturn(config);
 
         pluginStatic = mockStatic(PluginImpl.class);

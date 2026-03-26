@@ -589,9 +589,13 @@ public class PluginImpl extends GlobalConfiguration {
         }
         active = true;
 
-        // Initialize Hazelcast if cluster mode is enabled
+        // Initialize Hazelcast if cluster mode is enabled via system property
         try {
-            HazelcastManager.initialize();
+            boolean initialized = HazelcastManager.initialize();
+            if (initialized) {
+                logger.info("Hazelcast initialized successfully");
+                logger.info("Hazelcast status: {}", HazelcastManager.getStatus());
+            }
         } catch (Exception e) {
             logger.error("Failed to initialize Hazelcast cluster mode", e);
             // Continue plugin startup even if Hazelcast fails
@@ -633,9 +637,6 @@ public class PluginImpl extends GlobalConfiguration {
      */
     @Override
     public void load() {
-        // Capture previous cluster mode state (before loading new config)
-        boolean wasClusterModeEnabled = pluginConfig != null && pluginConfig.isClusterModeEnabled();
-
         // Load configuration from disk (deserializes XML)
         super.load();
 
@@ -667,53 +668,6 @@ public class PluginImpl extends GlobalConfiguration {
             for (GerritServer server : servers) {
                 ((Config)server.getConfig()).setGerritAuthKeyFile(location);
             }
-        }
-
-        // Synchronize Hazelcast state with reloaded configuration
-        // This handles the HA/HS scenario where replica 2 receives
-        // a configuration change from replica 1 and needs to adjust Hazelcast
-        // state accordingly.
-        // Only synchronize when plugin is active (not during initialization or testing)
-        boolean isClusterModeEnabled = pluginConfig.isClusterModeEnabled();
-
-        if (active && isClusterModeEnabled != wasClusterModeEnabled) {
-            logger.info("Cluster mode configuration changed during reload: {} -> {}",
-                    wasClusterModeEnabled, isClusterModeEnabled);
-
-            if (isClusterModeEnabled) {
-                // Cluster mode was enabled on another replica - start Hazelcast here
-                logger.info("Enabling cluster mode following configuration reload from another replica");
-                try {
-                    boolean initialized = HazelcastManager.initialize();
-                    if (initialized) {
-                        logger.info("Cluster mode enabled successfully. Hazelcast status: {}",
-                                HazelcastManager.getStatus());
-                    } else {
-                        logger.warn("Cluster mode initialization returned false. Check configuration.");
-                    }
-                } catch (Exception e) {
-                    logger.error("Failed to enable cluster mode during reload", e);
-                    // Plugin continues to work in standalone mode
-                }
-            } else {
-                // Cluster mode was disabled on another replica - shutdown Hazelcast here
-                logger.info("Disabling cluster mode following configuration reload from another replica");
-                try {
-                    HazelcastManager.shutdown();
-                    logger.info("Cluster mode disabled successfully. Plugin now running in standalone mode.");
-                } catch (Exception e) {
-                    logger.error("Error disabling cluster mode during reload", e);
-                    // Attempt to clean up anyway
-                    try {
-                        HazelcastManager.shutdown();
-                    } catch (Exception ex) {
-                        logger.error("Failed to shutdown Hazelcast during error recovery", ex);
-                    }
-                }
-            }
-        } else {
-            // Cluster mode setting unchanged - log for debugging
-            logger.debug("Cluster mode configuration unchanged during reload: {}", isClusterModeEnabled);
         }
     }
 
@@ -759,10 +713,14 @@ public class PluginImpl extends GlobalConfiguration {
         }
 
         // Shutdown Hazelcast first (before stopping servers)
-        try {
-            HazelcastManager.shutdown();
-        } catch (Exception e) {
-            logger.error("Error shutting down Hazelcast", e);
+        if (HazelcastManager.isInitialized()) {
+            logger.info("Shutting down Hazelcast...");
+            try {
+                HazelcastManager.shutdown();
+                logger.info("Hazelcast shutdown complete");
+            } catch (Exception e) {
+                logger.error("Error shutting down Hazelcast", e);
+            }
         }
 
         for (GerritServer s : servers) {

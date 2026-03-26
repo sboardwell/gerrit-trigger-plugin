@@ -23,8 +23,6 @@ package com.sonyericsson.hudson.plugins.gerrit.trigger.cluster;
 
 import com.hazelcast.core.Hazelcast;
 import com.hazelcast.core.HazelcastInstance;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.PluginImpl;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -210,26 +208,12 @@ public final class HazelcastManager {
     }
 
     /**
-     * Checks if cluster mode is enabled in plugin configuration.
+     * Checks if cluster mode is enabled via system property.
      *
      * @return true if cluster mode is enabled
      */
     private static boolean isClusterModeEnabled() {
-        PluginImpl plugin = PluginImpl.getInstance();
-        if (plugin == null) {
-            logger.warn("PluginImpl instance not available, cluster mode considered disabled");
-            return false;
-        }
-
-        PluginConfig config = plugin.getPluginConfig();
-        if (config == null) {
-            logger.warn("PluginConfig not available, cluster mode considered disabled");
-            return false;
-        }
-
-        boolean enabled = config.isClusterModeEnabled();
-        logger.debug("Cluster mode enabled: {}", enabled);
-        return enabled;
+        return ClusterModeProvider.isClusterModeEnabled();
     }
 
     /**
