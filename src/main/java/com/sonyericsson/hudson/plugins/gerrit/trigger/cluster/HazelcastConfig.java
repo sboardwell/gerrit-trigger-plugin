@@ -147,8 +147,9 @@ public final class HazelcastConfig {
         config.getSerializationConfig()
                 .getCompactSerializationConfig()
                 .addSerializer(new EventClaimSerializer())
+                .addSerializer(new EntryDataSerializer())
                 .addSerializer(new MemoryImprintDataSerializer());
-        logger.debug("Registered Compact Serializers for EventClaim and MemoryImprintData");
+        logger.debug("Registered Compact Serializers for EventClaim, EntryData, and MemoryImprintData");
 
         logger.info("Hazelcast configuration created for cluster: {}", clusterName);
 

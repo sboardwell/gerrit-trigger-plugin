@@ -135,8 +135,9 @@ public final class HazelcastClientManager {
             clientConfig.getSerializationConfig()
                     .getCompactSerializationConfig()
                     .addSerializer(new EventClaimSerializer())
+                    .addSerializer(new EntryDataSerializer())
                     .addSerializer(new MemoryImprintDataSerializer());
-            logger.debug("Registered Compact Serializers for EventClaim and MemoryImprintData");
+            logger.debug("Registered Compact Serializers for EventClaim, EntryData, and MemoryImprintData");
 
             // Network addresses (sidecar endpoints)
             String addresses = System.getProperty(ADDRESSES_PROPERTY, DEFAULT_ADDRESS);

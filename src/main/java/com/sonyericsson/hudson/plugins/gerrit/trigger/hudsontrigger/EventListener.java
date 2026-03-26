@@ -23,8 +23,6 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger;
 
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventClaimService;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.ManualPatchsetCreated;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
@@ -126,13 +124,9 @@ public final class EventListener implements GerritEventListener {
         if (event instanceof GerritTriggeredEvent) {
             GerritTriggeredEvent triggeredEvent = (GerritTriggeredEvent)event;
 
-            // Try to claim the event in cluster mode to prevent duplicate builds
-            // If claim fails, another replica has already claimed it - skip processing
-            if (!EventClaimService.tryClaimEvent(triggeredEvent)) {
-                logger.trace("Event already claimed by another replica, skipping: {} (job: {})",
-                        EventIdentifier.generateEventId(triggeredEvent), job);
-                return;
-            }
+            // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+            // If this method is called, the replica has already successfully claimed the event
+            // So we can safely process it for this job
 
             synchronized (this) {
                 if (t.isInteresting(triggeredEvent)) {
@@ -175,13 +169,9 @@ public final class EventListener implements GerritEventListener {
             return;
         }
 
-        // Try to claim the event in cluster mode to prevent duplicate builds
-        // If claim fails, another replica has already claimed it - skip processing
-        if (!EventClaimService.tryClaimEvent(event)) {
-            logger.info("Event already claimed by another replica, skipping: {} (job: {})",
-                    EventIdentifier.generateEventId(event), job);
-            return;
-        }
+        // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+        // If this method is called, the replica has already successfully claimed the event
+        // So we can safely process it for this job
 
         synchronized (this) {
             if (t.isInteresting(event)) {
@@ -230,13 +220,9 @@ public final class EventListener implements GerritEventListener {
             return;
         }
 
-        // Try to claim the event in cluster mode to prevent duplicate builds
-        // If claim fails, another replica has already claimed it - skip processing
-        if (!EventClaimService.tryClaimEvent(event)) {
-            logger.info("Event already claimed by another replica, skipping: {} (job: {})",
-                    EventIdentifier.generateEventId(event), job);
-            return;
-        }
+        // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+        // If this method is called, the replica has already successfully claimed the event
+        // So we can safely process it for this job
 
         synchronized (this) {
             if (t.isInteresting(event) && t.commentAddedMatch(event)) {
