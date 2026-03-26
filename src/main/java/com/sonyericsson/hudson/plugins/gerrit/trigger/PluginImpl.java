@@ -29,6 +29,7 @@ import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.ToGerritRun
 import com.sonyericsson.hudson.plugins.gerrit.trigger.replication.ReplicationQueueTaskDispatcher;
 import com.sonymobile.tools.gerrit.gerritevents.GerritHandler;
 import com.sonymobile.tools.gerrit.gerritevents.GerritSendCommandQueue;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastManager;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
@@ -583,7 +584,13 @@ public class PluginImpl extends GlobalConfiguration {
         logger.trace("Loading configs");
         load();
         GerritSendCommandQueue.initialize(pluginConfig);
-        gerritEventManager = new JenkinsAwareGerritHandler(pluginConfig.getNumberOfReceivingWorkerThreads());
+        if (ClusterModeProvider.isClusterModeEnabled()) {
+            gerritEventManager = new EventClaimingJenkinsAwareGerritHandler(
+                pluginConfig.getNumberOfReceivingWorkerThreads());
+        } else {
+            gerritEventManager = new JenkinsAwareGerritHandler(
+                pluginConfig.getNumberOfReceivingWorkerThreads());
+        }
         for (GerritServer s : servers) {
             s.start();
         }

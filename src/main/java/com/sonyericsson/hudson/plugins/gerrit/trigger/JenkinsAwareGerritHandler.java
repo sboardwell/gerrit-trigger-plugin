@@ -30,10 +30,7 @@ import org.slf4j.LoggerFactory;
 
 import com.sonymobile.tools.gerrit.gerritevents.GerritHandler;
 import com.sonymobile.tools.gerrit.gerritevents.dto.GerritEvent;
-import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonymobile.tools.gerrit.gerritevents.workers.EventThread;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventClaimService;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
 
 /**
@@ -69,20 +66,6 @@ public class JenkinsAwareGerritHandler extends GerritHandler {
 
     @Override
     public void notifyListeners(GerritEvent event) {
-        // Try to claim the event in cluster mode BEFORE dispatching to jobs
-        // This ensures only ONE replica processes the event across ALL jobs
-        if (event instanceof GerritTriggeredEvent) {
-            GerritTriggeredEvent triggeredEvent = (GerritTriggeredEvent)event;
-            if (!EventClaimService.tryClaimEvent(triggeredEvent)) {
-                // Another replica has already claimed this event - skip all job processing
-                logger.debug("Event already claimed by another replica, skipping all jobs: {}",
-                        EventIdentifier.generateEventId(triggeredEvent));
-                return;
-            }
-            logger.trace("Successfully claimed event for this replica: {}",
-                    EventIdentifier.generateEventId(triggeredEvent));
-        }
-
         // Notify lifecycle listeners.
         if (event instanceof GerritEventLifecycle) {
             try {
