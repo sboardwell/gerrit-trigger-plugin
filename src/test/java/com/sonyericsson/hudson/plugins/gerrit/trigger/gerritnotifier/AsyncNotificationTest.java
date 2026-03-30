@@ -53,6 +53,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -416,8 +418,15 @@ public class AsyncNotificationTest {
         @SuppressWarnings("unchecked")
         IMap<String, Boolean> notificationFlags = (IMap<String, Boolean>)mock(IMap.class);
 
-        // Mock putIfAbsent to use ConcurrentHashMap semantics
+        // Mock putIfAbsent to use ConcurrentHashMap semantics (without TTL)
         when(notificationFlags.putIfAbsent(anyString(), eq(Boolean.TRUE)))
+            .thenAnswer(invocation -> {
+                String key = invocation.getArgument(0);
+                return backingMap.putIfAbsent(key, Boolean.TRUE);
+            });
+
+        // Mock putIfAbsent with TTL (the version actually used in ClusterNotificationClaimStrategy)
+        when(notificationFlags.putIfAbsent(anyString(), eq(Boolean.TRUE), anyLong(), any(TimeUnit.class)))
             .thenAnswer(invocation -> {
                 String key = invocation.getArgument(0);
                 return backingMap.putIfAbsent(key, Boolean.TRUE);

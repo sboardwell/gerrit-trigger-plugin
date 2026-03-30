@@ -28,10 +28,15 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.hazelcast.core.HazelcastInstance;
 import com.hazelcast.map.IMap;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.BuildCancelledProcessor;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.BuildCompletedProcessor;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.BuildMemoryKey;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.BuildStartedProcessor;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EntryData;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.MemoryImprintData;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.SetCustomUrlProcessor;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.SetUnsuccessfulMessageProcessor;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import hudson.model.Job;
@@ -213,26 +218,6 @@ public class ClusterBuildMemory extends BuildMemory {
         return data;
     }
 
-    /**
-     * Writes a MemoryImprint back to distributed storage.
-     * Call this after modifying an imprint.
-     *
-     * @param event the event
-     * @param imprint the modified memory imprint
-     */
-    private void writeBackToDistributed(GerritTriggeredEvent event, MemoryImprint imprint) {
-        IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
-        if (map != null) {
-            BuildMemoryKey key = new BuildMemoryKey(event);
-            MemoryImprintData data = toMemoryImprintData(event, imprint);
-            map.put(key, data);
-            logger.trace("Wrote modified imprint back to distributed memory: {}", key);
-        } else {
-            // Fallback to parent class (local TreeMap)
-            super.triggered(event, imprint.getEntries()[0].getProject());
-        }
-    }
-
     @Override
     public synchronized MemoryImprint getMemoryImprint(GerritTriggeredEvent event) {
         IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
@@ -253,43 +238,15 @@ public class ClusterBuildMemory extends BuildMemory {
         IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
         if (map != null) {
             BuildMemoryKey key = new BuildMemoryKey(event);
-            MemoryImprintData data = map.get(key);
-
-            if (data == null) {
-                logger.debug("Build completed without being registered first (distributed mode).");
-                data = new MemoryImprintData();
-                data.setEventJson(serializeEvent(event));
-            }
-
-            // Update entry for this project as completed
             String projectFullName = build.getParent().getFullName();
-            boolean found = false;
+            String buildId = build.getId();
 
-            if (data.getEntries() != null) {
-                for (EntryData entry : data.getEntries()) {
-                    if (projectFullName.equals(entry.getProjectFullName())) {
-                        if (entry.getBuildId() == null) {
-                            entry.setBuildId(build.getId());
-                        }
-                        entry.setBuildCompleted(true);
-                        entry.setCompletedTimestamp(System.currentTimeMillis());
-                        found = true;
-                        break;
-                    }
-                }
-            }
+            // ATOMIC OPERATION - Executes on partition owner, prevents race conditions
+            Boolean found = map.executeOnKey(key, new BuildCompletedProcessor(projectFullName, buildId));
 
             if (!found) {
-                // Entry not found, create new one as completed
-                EntryData entryData = new EntryData();
-                entryData.setProjectFullName(projectFullName);
-                entryData.setBuildId(build.getId());
-                entryData.setBuildCompleted(true);
-                entryData.setCompletedTimestamp(System.currentTimeMillis());
-                data.addEntry(entryData);
+                logger.debug("Build completed without being registered first (distributed mode).");
             }
-
-            map.put(key, data);
             logger.trace("Build completed event stored in distributed memory: {}", key);
             return;
         }
@@ -302,39 +259,15 @@ public class ClusterBuildMemory extends BuildMemory {
         IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
         if (map != null) {
             BuildMemoryKey key = new BuildMemoryKey(event);
-            MemoryImprintData data = map.get(key);
-
-            if (data == null) {
-                logger.warn("Build started without being registered first (distributed mode).");
-                data = new MemoryImprintData();
-                data.setEventJson(serializeEvent(event));
-            }
-
-            // Update entry for this project with build info
             String projectFullName = build.getParent().getFullName();
-            boolean found = false;
+            String buildId = build.getId();
 
-            if (data.getEntries() != null) {
-                for (EntryData entry : data.getEntries()) {
-                    if (projectFullName.equals(entry.getProjectFullName())) {
-                        entry.setBuildId(build.getId());
-                        entry.setStartedTimestamp(System.currentTimeMillis());
-                        found = true;
-                        break;
-                    }
-                }
-            }
+            // ATOMIC OPERATION - Executes on partition owner, prevents race conditions
+            Boolean found = map.executeOnKey(key, new BuildStartedProcessor(projectFullName, buildId));
 
             if (!found) {
-                // Entry not found, create new one
-                EntryData entryData = new EntryData();
-                entryData.setProjectFullName(projectFullName);
-                entryData.setBuildId(build.getId());
-                entryData.setStartedTimestamp(System.currentTimeMillis());
-                data.addEntry(entryData);
+                logger.warn("Build started without being registered first (distributed mode).");
             }
-
-            map.put(key, data);
             logger.trace("Build started event stored in distributed memory: {}", key);
             return;
         }
@@ -433,38 +366,14 @@ public class ClusterBuildMemory extends BuildMemory {
         IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
         if (map != null) {
             BuildMemoryKey key = new BuildMemoryKey(event);
-            MemoryImprintData data = map.get(key);
-
-            if (data == null) {
-                data = new MemoryImprintData();
-                data.setEventJson(serializeEvent(event));
-            }
-
-            // Find or create entry for this project
             String projectFullName = project.getFullName();
-            boolean found = false;
 
-            if (data.getEntries() != null) {
-                for (EntryData entry : data.getEntries()) {
-                    if (projectFullName.equals(entry.getProjectFullName())) {
-                        entry.setCancelled(true);
-                        entry.setBuildCompleted(true);
-                        found = true;
-                        break;
-                    }
-                }
-            }
+            // ATOMIC OPERATION - Executes on partition owner, prevents race conditions
+            Boolean found = map.executeOnKey(key, new BuildCancelledProcessor(projectFullName));
 
             if (!found) {
-                // Create new entry as cancelled
-                EntryData entryData = new EntryData();
-                entryData.setProjectFullName(projectFullName);
-                entryData.setCancelled(true);
-                entryData.setBuildCompleted(true);
-                data.addEntry(entryData);
+                logger.debug("Build cancelled without being registered first (distributed mode).");
             }
-
-            map.put(key, data);
             logger.trace("Cancelled event stored in distributed memory: {}", key);
             return;
         }
@@ -487,17 +396,20 @@ public class ClusterBuildMemory extends BuildMemory {
 
     @Override
     public void setEntryCustomUrl(GerritTriggeredEvent event, Run r, String customUrl) {
-        MemoryImprint pb = getMemoryImprint(event);
+        IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
+        if (map != null) {
+            BuildMemoryKey key = new BuildMemoryKey(event);
+            String projectFullName = r.getParent().getFullName();
 
-        if (pb != null) {
-            MemoryImprint.Entry entry = pb.getEntry(r.getParent());
+            // ATOMIC OPERATION - Executes on partition owner, prevents race conditions
+            Boolean found = map.executeOnKey(key, new SetCustomUrlProcessor(projectFullName, customUrl));
 
-            if (entry != null) {
+            if (found) {
                 logger.trace("Recording custom URL for {}: {}", event, customUrl);
-                entry.setCustomUrl(customUrl);
-                writeBackToDistributed(event, pb);
-                return;
+            } else {
+                logger.warn("Could not set custom URL - event not found: {}", event);
             }
+            return;
         }
         // Fallback to parent
         super.setEntryCustomUrl(event, r, customUrl);
@@ -505,17 +417,21 @@ public class ClusterBuildMemory extends BuildMemory {
 
     @Override
     public void setEntryUnsuccessfulMessage(GerritTriggeredEvent event, Run r, String unsuccessfulMessage) {
-        MemoryImprint pb = getMemoryImprint(event);
+        IMap<BuildMemoryKey, MemoryImprintData> map = getDistributedMemory();
+        if (map != null) {
+            BuildMemoryKey key = new BuildMemoryKey(event);
+            String projectFullName = r.getParent().getFullName();
 
-        if (pb != null) {
-            MemoryImprint.Entry entry = pb.getEntry(r.getParent());
+            // ATOMIC OPERATION - Executes on partition owner, prevents race conditions
+            Boolean found = map.executeOnKey(key,
+                    new SetUnsuccessfulMessageProcessor(projectFullName, unsuccessfulMessage));
 
-            if (entry != null) {
+            if (found) {
                 logger.trace("Recording unsuccessful message for {}: {}", event, unsuccessfulMessage);
-                entry.setUnsuccessfulMessage(unsuccessfulMessage);
-                writeBackToDistributed(event, pb);
-                return;
+            } else {
+                logger.warn("Could not set unsuccessful message - event not found: {}", event);
             }
+            return;
         }
         // Fallback to parent
         super.setEntryUnsuccessfulMessage(event, r, unsuccessfulMessage);
