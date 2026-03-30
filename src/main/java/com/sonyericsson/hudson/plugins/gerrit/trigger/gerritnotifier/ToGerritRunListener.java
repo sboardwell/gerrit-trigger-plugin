@@ -49,6 +49,12 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import jenkins.model.Jenkins;
 
@@ -69,7 +75,77 @@ public final class ToGerritRunListener extends RunListener<Run> {
      */
     public static final int ORDINAL = 10003;
     private static final Logger logger = LoggerFactory.getLogger(ToGerritRunListener.class);
-    private final transient BuildMemory memory = new BuildMemory();
+    private final transient BuildMemory memory = BuildMemory.create();
+
+    /**
+     * Thread pool size for async notifications.
+     */
+    private static final int NOTIFICATION_THREAD_POOL_SIZE = 10;
+
+    /**
+     * Core thread pool size for notifications.
+     */
+    private static final int NOTIFICATION_CORE_POOL_SIZE = 2;
+
+    /**
+     * Thread keep-alive time in seconds.
+     */
+    private static final long THREAD_KEEP_ALIVE_TIME = 60L;
+
+    /**
+     * Notification queue size.
+     */
+    private static final int NOTIFICATION_QUEUE_SIZE = 100;
+
+    /**
+     * Shutdown timeout in seconds.
+     */
+    private static final int SHUTDOWN_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Initial delay before checking async tasks (milliseconds).
+     */
+    private static final int AWAIT_INITIAL_DELAY_MS = 100;
+
+    /**
+     * Final delay after waiting for async tasks (milliseconds).
+     */
+    private static final int AWAIT_FINAL_DELAY_MS = 100;
+
+    /**
+     * Executor service for async notification processing.
+     * Prevents slow Gerrit notifications from blocking build completions.
+     */
+    private final ExecutorService notificationExecutor;
+
+    /**
+     * Strategy for notification claiming (local vs cluster mode).
+     */
+    private final NotificationClaimStrategy claimStrategy;
+
+    /**
+     * Constructor - initializes the notification thread pool and claim strategy.
+     */
+    public ToGerritRunListener() {
+        super();
+        this.notificationExecutor = createNotificationExecutor();
+        this.claimStrategy = createClaimStrategy();
+    }
+
+    /**
+     * Creates the appropriate notification claim strategy based on cluster mode.
+     *
+     * @return NotificationClaimStrategy instance
+     */
+    private NotificationClaimStrategy createClaimStrategy() {
+        if (com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider.isClusterModeEnabled()) {
+            logger.info("Cluster mode enabled - using ClusterNotificationClaimStrategy");
+            return new ClusterNotificationClaimStrategy();
+        } else {
+            logger.debug("Local mode - using LocalNotificationClaimStrategy");
+            return new LocalNotificationClaimStrategy();
+        }
+    }
 
     /**
      * Returns the registered instance of this class from the list of all listeners.
@@ -88,6 +164,97 @@ public final class ToGerritRunListener extends RunListener<Run> {
         } catch (IllegalStateException e) {
             logger.error("INITIALIZATION ERROR? Could not find the registered instance.", e);
             return null;
+        }
+    }
+
+    /**
+     * Returns the BuildMemory instance managed by this listener.
+     * <p>
+     * This method is primarily used by
+     * {@link com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemoryManager}
+     * to trigger data migrations when cluster mode is enabled/disabled.
+     *
+     * @return the BuildMemory instance
+     */
+    @NonNull
+    public BuildMemory getMemory() {
+        return memory;
+    }
+
+    /**
+     * Creates the notification executor thread pool.
+     *
+     * @return configured ExecutorService
+     */
+    private ExecutorService createNotificationExecutor() {
+        ThreadFactory threadFactory = new ThreadFactory() {
+            private final AtomicInteger threadNumber = new AtomicInteger(1);
+
+            @Override
+            public Thread newThread(Runnable r) {
+                Thread thread = new Thread(r, "gerrit-notification-" + threadNumber.getAndIncrement());
+                thread.setDaemon(true);
+                return thread;
+            }
+        };
+
+        return new ThreadPoolExecutor(
+                NOTIFICATION_CORE_POOL_SIZE,  // core pool size
+                NOTIFICATION_THREAD_POOL_SIZE,  // maximum pool size
+                THREAD_KEEP_ALIVE_TIME, TimeUnit.SECONDS,  // keep-alive time
+                new LinkedBlockingQueue<>(NOTIFICATION_QUEUE_SIZE),  // bounded queue
+                threadFactory,
+                new ThreadPoolExecutor.CallerRunsPolicy()  // rejection policy - back-pressure
+        );
+    }
+
+    /**
+     * Waits for all pending notification tasks to complete.
+     * Useful for testing to ensure async notifications have finished.
+     *
+     * @param timeoutMillis maximum time to wait in milliseconds
+     * @return true if all tasks completed, false if timeout occurred
+     */
+    public boolean awaitPendingNotifications(long timeoutMillis) {
+        // Give async tasks time to be submitted to executor
+        try {
+            Thread.sleep(AWAIT_INITIAL_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
+        // Submit a dummy task and wait for it to complete
+        // This ensures all previously submitted tasks have finished
+        try {
+            notificationExecutor.submit(() -> { }).get(timeoutMillis, TimeUnit.MILLISECONDS);
+            // Extra safety: small delay to ensure async task completes
+            Thread.sleep(AWAIT_FINAL_DELAY_MS);
+            return true;
+        } catch (Exception e) {
+            logger.warn("Timeout or error waiting for pending notifications", e);
+            return false;
+        }
+    }
+
+    /**
+     * Shuts down the notification executor gracefully.
+     * Called during plugin shutdown.
+     */
+    public void shutdown() {
+        logger.info("Shutting down notification executor, waiting for in-flight notifications...");
+        notificationExecutor.shutdown();
+        try {
+            if (!notificationExecutor.awaitTermination(SHUTDOWN_TIMEOUT_SECONDS, TimeUnit.SECONDS)) {
+                logger.warn("Notification executor did not terminate in time, forcing shutdown");
+                List<Runnable> pendingTasks = notificationExecutor.shutdownNow();
+                logger.warn("Dropped {} pending notification tasks", pendingTasks.size());
+            } else {
+                logger.info("Notification executor shutdown complete");
+            }
+        } catch (InterruptedException e) {
+            logger.warn("Interrupted while waiting for notification executor shutdown");
+            notificationExecutor.shutdownNow();
+            Thread.currentThread().interrupt();
         }
     }
 
@@ -158,7 +325,17 @@ public final class ToGerritRunListener extends RunListener<Run> {
                 }
 
                 updateTriggerContexts(r);
-                allBuildsCompleted(event, cause, listener);
+
+                // Check if all builds complete, and if so, spawn async notification
+                if (memory.isAllBuildsCompleted(event)) {
+                    logger.debug("All builds completed for event, spawning async notification");
+                    // Spawn async notification thread - release lock immediately!
+                    // This prevents slow Gerrit API calls from blocking other build completions
+                    notificationExecutor.submit(() -> handleNotification(event, cause, listener));
+                } else {
+                    logger.info("Waiting for more builds to complete for cause [{}]. Status: \n{}",
+                            cause, memory.getStatusReport(event));
+                }
             }
         }
     }
@@ -175,28 +352,63 @@ public final class ToGerritRunListener extends RunListener<Run> {
     }
 
     /**
+     * Handles notification sending in an async thread.
+     * Uses claim strategy to ensure only one replica sends notification in HA/HS mode.
+     * This method is NOT synchronized as it runs in a separate thread.
+     *
+     * @param event   the Gerrit Event which needs notification.
+     * @param cause   the Gerrit Cause which triggered the build initially.
+     * @param listener   the Jenkins listener.
+     */
+    private void handleNotification(GerritTriggeredEvent event, GerritCause cause, TaskListener listener) {
+        try {
+            // Try to claim the notification right (uses strategy: local always succeeds, cluster uses Hazelcast)
+            if (claimStrategy.tryClaimNotificationRight(event)) {
+                // We successfully claimed it - send the notification
+                try {
+                    logger.info("All Builds are completed for cause: {}, sending notification", cause);
+                    if (event instanceof GerritEventLifecycle) {
+                        ((GerritEventLifecycle)event).fireAllBuildsCompleted();
+                    }
+                    GerritNotifierFactory.getInstance().queueBuildCompleted(memory.getMemoryImprint(event), listener);
+                    logger.info("Successfully sent notification for event: {}", event);
+                } finally {
+                    // Always clean up, even if notification fails
+                    memory.forget(event);
+                    claimStrategy.releaseNotificationRight(event);
+                }
+            } else {
+                // Another replica claimed it - we still need to clean up local memory
+                logger.debug("Another replica handling notification for event: {}, cleaning up local memory", event);
+                memory.forget(event);
+            }
+        } catch (Exception e) {
+            logger.error("Error sending notification for event: " + event, e);
+            // Clean up even on error to prevent memory leaks
+            try {
+                memory.forget(event);
+                claimStrategy.releaseNotificationRight(event);
+            } catch (Exception cleanupEx) {
+                logger.error("Error during cleanup after notification failure", cleanupEx);
+            }
+        }
+    }
+
+    /**
      * Manages the end of a Gerrit Event. Should be called after each build related to an event completes if that build
      * should report back to Gerrit.
+     *
+     * @deprecated This method is kept for backwards compatibility. The notification is now handled asynchronously
+     * via {@link #handleNotification(GerritTriggeredEvent, GerritCause, TaskListener)}.
      *
      * @param event   the Gerrit Event which may need to be completed.
      * @param cause   the Gerrit Cause which triggered the build initially.
      * @param listener   the Jenkins listener.
      */
+    @Deprecated
     public synchronized void allBuildsCompleted(GerritTriggeredEvent event, GerritCause cause, TaskListener listener) {
-        if (memory.isAllBuildsCompleted(event)) {
-            try {
-                logger.info("All Builds are completed for cause: {}", cause);
-                if (event instanceof GerritEventLifecycle) {
-                    ((GerritEventLifecycle)event).fireAllBuildsCompleted();
-                }
-                GerritNotifierFactory.getInstance().queueBuildCompleted(memory.getMemoryImprint(event), listener);
-            } finally {
-                memory.forget(event);
-            }
-        } else {
-            logger.info("Waiting for more builds to complete for cause [{}]. Status: \n{}",
-                    cause, memory.getStatusReport(event));
-        }
+        // This method is now a no-op - notification is handled asynchronously in onCompleted()
+        logger.debug("allBuildsCompleted called (deprecated method) - notification handled asynchronously");
     }
 
     /**
