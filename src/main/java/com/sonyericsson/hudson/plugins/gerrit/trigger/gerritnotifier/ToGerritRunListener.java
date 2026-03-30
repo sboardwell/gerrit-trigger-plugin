@@ -23,10 +23,6 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier;
 
-import com.hazelcast.core.HazelcastInstance;
-import com.hazelcast.map.IMap;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.EventIdentifier;
-import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastInstanceProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonymobile.tools.gerrit.gerritevents.dto.events.GerritTriggeredEvent;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.events.lifecycle.GerritEventLifecycle;
@@ -79,12 +75,7 @@ public final class ToGerritRunListener extends RunListener<Run> {
      */
     public static final int ORDINAL = 10003;
     private static final Logger logger = LoggerFactory.getLogger(ToGerritRunListener.class);
-    private final transient BuildMemory memory = new BuildMemory();
-
-    /**
-     * Hazelcast map name for notification claim flags.
-     */
-    private static final String NOTIFICATION_FLAGS_MAP = "gerrit-trigger-notification-flags";
+    private final transient BuildMemory memory = BuildMemory.create();
 
     /**
      * Thread pool size for async notifications.
@@ -107,14 +98,19 @@ public final class ToGerritRunListener extends RunListener<Run> {
     private static final int NOTIFICATION_QUEUE_SIZE = 100;
 
     /**
-     * Notification claim TTL in minutes.
-     */
-    private static final int NOTIFICATION_CLAIM_TTL_MINUTES = 10;
-
-    /**
      * Shutdown timeout in seconds.
      */
     private static final int SHUTDOWN_TIMEOUT_SECONDS = 30;
+
+    /**
+     * Initial delay before checking async tasks (milliseconds).
+     */
+    private static final int AWAIT_INITIAL_DELAY_MS = 100;
+
+    /**
+     * Final delay after waiting for async tasks (milliseconds).
+     */
+    private static final int AWAIT_FINAL_DELAY_MS = 100;
 
     /**
      * Executor service for async notification processing.
@@ -123,11 +119,32 @@ public final class ToGerritRunListener extends RunListener<Run> {
     private final ExecutorService notificationExecutor;
 
     /**
-     * Constructor - initializes the notification thread pool.
+     * Strategy for notification claiming (local vs cluster mode).
+     */
+    private final NotificationClaimStrategy claimStrategy;
+
+    /**
+     * Constructor - initializes the notification thread pool and claim strategy.
      */
     public ToGerritRunListener() {
         super();
         this.notificationExecutor = createNotificationExecutor();
+        this.claimStrategy = createClaimStrategy();
+    }
+
+    /**
+     * Creates the appropriate notification claim strategy based on cluster mode.
+     *
+     * @return NotificationClaimStrategy instance
+     */
+    private NotificationClaimStrategy createClaimStrategy() {
+        if (com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider.isClusterModeEnabled()) {
+            logger.info("Cluster mode enabled - using ClusterNotificationClaimStrategy");
+            return new ClusterNotificationClaimStrategy();
+        } else {
+            logger.debug("Local mode - using LocalNotificationClaimStrategy");
+            return new LocalNotificationClaimStrategy();
+        }
     }
 
     /**
@@ -192,75 +209,30 @@ public final class ToGerritRunListener extends RunListener<Run> {
     }
 
     /**
-     * Checks if cluster mode is enabled via system property.
+     * Waits for all pending notification tasks to complete.
+     * Useful for testing to ensure async notifications have finished.
      *
-     * @return true if cluster mode is enabled
+     * @param timeoutMillis maximum time to wait in milliseconds
+     * @return true if all tasks completed, false if timeout occurred
      */
-    private boolean isClusterModeEnabled() {
-        return com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider.isClusterModeEnabled();
-    }
-
-    /**
-     * Attempts to claim the right to send notification for an event.
-     * Uses atomic putIfAbsent to ensure only one replica sends the notification.
-     *
-     * @param event the event
-     * @return true if this replica successfully claimed the right, false if another replica claimed it
-     */
-    private boolean tryClaimNotificationRight(GerritTriggeredEvent event) {
-        if (!isClusterModeEnabled()) {
-            return true; // Always send in local mode
-        }
-
+    public boolean awaitPendingNotifications(long timeoutMillis) {
+        // Give async tasks time to be submitted to executor
         try {
-            HazelcastInstance hz = HazelcastInstanceProvider.getInstance();
-            if (hz == null) {
-                logger.warn("Hazelcast unavailable for notification claim, proceeding with local mode");
-                return true; // Fail-safe: send notification
-            }
-
-            IMap<String, Boolean> notificationFlags = hz.getMap(NOTIFICATION_FLAGS_MAP);
-            String eventId = EventIdentifier.generateEventId(event);
-            String flagKey = "notified-" + eventId;
-
-            // Atomic operation: set flag if not already set
-            Boolean previousValue = notificationFlags.putIfAbsent(
-                    flagKey, Boolean.TRUE, NOTIFICATION_CLAIM_TTL_MINUTES, TimeUnit.MINUTES);
-
-            boolean claimed = (previousValue == null);
-            if (claimed) {
-                logger.debug("Successfully claimed notification right for event: {}", eventId);
-            } else {
-                logger.debug("Another replica already claimed notification for event: {}", eventId);
-            }
-            return claimed;
-        } catch (Exception e) {
-            logger.error("Error claiming notification right, proceeding with send to avoid notification loss", e);
-            return true; // Fail-safe: send notification
-        }
-    }
-
-    /**
-     * Releases the notification claim for an event.
-     *
-     * @param event the event
-     */
-    private void releaseNotificationRight(GerritTriggeredEvent event) {
-        if (!isClusterModeEnabled()) {
-            return;
+            Thread.sleep(AWAIT_INITIAL_DELAY_MS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         }
 
+        // Submit a dummy task and wait for it to complete
+        // This ensures all previously submitted tasks have finished
         try {
-            HazelcastInstance hz = HazelcastInstanceProvider.getInstance();
-            if (hz != null) {
-                IMap<String, Boolean> notificationFlags = hz.getMap(NOTIFICATION_FLAGS_MAP);
-                String eventId = EventIdentifier.generateEventId(event);
-                String flagKey = "notified-" + eventId;
-                notificationFlags.delete(flagKey);
-                logger.trace("Released notification claim for event: {}", eventId);
-            }
+            notificationExecutor.submit(() -> { }).get(timeoutMillis, TimeUnit.MILLISECONDS);
+            // Extra safety: small delay to ensure async task completes
+            Thread.sleep(AWAIT_FINAL_DELAY_MS);
+            return true;
         } catch (Exception e) {
-            logger.warn("Error releasing notification claim (non-critical)", e);
+            logger.warn("Timeout or error waiting for pending notifications", e);
+            return false;
         }
     }
 
@@ -381,7 +353,7 @@ public final class ToGerritRunListener extends RunListener<Run> {
 
     /**
      * Handles notification sending in an async thread.
-     * Uses atomic claim mechanism to ensure only one replica sends notification in HA/HS mode.
+     * Uses claim strategy to ensure only one replica sends notification in HA/HS mode.
      * This method is NOT synchronized as it runs in a separate thread.
      *
      * @param event   the Gerrit Event which needs notification.
@@ -390,8 +362,8 @@ public final class ToGerritRunListener extends RunListener<Run> {
      */
     private void handleNotification(GerritTriggeredEvent event, GerritCause cause, TaskListener listener) {
         try {
-            // Try to claim the notification right (atomic operation in cluster mode)
-            if (tryClaimNotificationRight(event)) {
+            // Try to claim the notification right (uses strategy: local always succeeds, cluster uses Hazelcast)
+            if (claimStrategy.tryClaimNotificationRight(event)) {
                 // We successfully claimed it - send the notification
                 try {
                     logger.info("All Builds are completed for cause: {}, sending notification", cause);
@@ -403,7 +375,7 @@ public final class ToGerritRunListener extends RunListener<Run> {
                 } finally {
                     // Always clean up, even if notification fails
                     memory.forget(event);
-                    releaseNotificationRight(event);
+                    claimStrategy.releaseNotificationRight(event);
                 }
             } else {
                 // Another replica claimed it - we still need to clean up local memory
@@ -415,7 +387,7 @@ public final class ToGerritRunListener extends RunListener<Run> {
             // Clean up even on error to prevent memory leaks
             try {
                 memory.forget(event);
-                releaseNotificationRight(event);
+                claimStrategy.releaseNotificationRight(event);
             } catch (Exception cleanupEx) {
                 logger.error("Error during cleanup after notification failure", cleanupEx);
             }
