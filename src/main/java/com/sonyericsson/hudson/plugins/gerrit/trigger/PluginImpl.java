@@ -25,9 +25,12 @@
 package com.sonyericsson.hudson.plugins.gerrit.trigger;
 
 import com.sonyericsson.hudson.plugins.gerrit.trigger.dependency.DependencyQueueTaskDispatcher;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.ToGerritRunListener;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.replication.ReplicationQueueTaskDispatcher;
 import com.sonymobile.tools.gerrit.gerritevents.GerritHandler;
 import com.sonymobile.tools.gerrit.gerritevents.GerritSendCommandQueue;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider;
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.HazelcastManager;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.Config;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.IGerritHudsonTriggerConfig;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.config.PluginConfig;
@@ -581,11 +584,29 @@ public class PluginImpl extends GlobalConfiguration {
         logger.trace("Loading configs");
         load();
         GerritSendCommandQueue.initialize(pluginConfig);
-        gerritEventManager = new JenkinsAwareGerritHandler(pluginConfig.getNumberOfReceivingWorkerThreads());
+        if (ClusterModeProvider.isClusterModeEnabled()) {
+            gerritEventManager = new EventClaimingJenkinsAwareGerritHandler(
+                pluginConfig.getNumberOfReceivingWorkerThreads());
+        } else {
+            gerritEventManager = new JenkinsAwareGerritHandler(
+                pluginConfig.getNumberOfReceivingWorkerThreads());
+        }
         for (GerritServer s : servers) {
             s.start();
         }
         active = true;
+
+        // Initialize Hazelcast if cluster mode is enabled via system property
+        try {
+            boolean initialized = HazelcastManager.initialize();
+            if (initialized) {
+                logger.info("Hazelcast initialized successfully");
+                logger.info("Hazelcast status: {}", HazelcastManager.getStatus());
+            }
+        } catch (Exception e) {
+            logger.error("Failed to initialize Hazelcast cluster mode", e);
+            // Continue plugin startup even if Hazelcast fails
+        }
     }
 
     /**
@@ -611,10 +632,22 @@ public class PluginImpl extends GlobalConfiguration {
 
     /**
      * Load plugin config.
+     * <p>
+     * This method is called:
+     * <ul>
+     *   <li>During plugin startup (via {@link #start()})</li>
+     *   <li>When configuration is reloaded from another replica (HA/HS)</li>
+     * </ul>
+     * In HA/HS environments, when configuration is saved on replica 1,
+     * replication broadcasts a message that triggers {@code load()} on replica 2,
+     * ensuring all replicas stay synchronized.
      */
     @Override
     public void load() {
+        // Load configuration from disk (deserializes XML)
         super.load();
+
+        // Backward compatibility: Initialize pluginConfig if null
         if (pluginConfig == null) {
             PluginConfig conf = new PluginConfig();
             if (config != null) {
@@ -623,6 +656,8 @@ public class PluginImpl extends GlobalConfiguration {
             }
             pluginConfig = conf;
         }
+
+        // Backward compatibility: Migrate old server format
         if (servers.isEmpty()) {
             if (config != null) { //have loaded data in old format, so add a new server with the old config to the list.
                 GerritServer defaultServer = new GerritServer(DEFAULT_SERVER_NAME);
@@ -631,7 +666,9 @@ public class PluginImpl extends GlobalConfiguration {
             }
             save();
         }
+
         pluginConfig.updateEventFilter();
+
         //For unit/integration testing only...
         if (System.getProperty(TEST_SSH_KEYFILE_LOCATION_PROPERTY) != null && !servers.isEmpty()) {
             File location = new File(System.getProperty(TEST_SSH_KEYFILE_LOCATION_PROPERTY));
@@ -671,6 +708,28 @@ public class PluginImpl extends GlobalConfiguration {
      */
     public void stop() {
         active = false;
+
+        // Shutdown ToGerritRunListener notification executor
+        try {
+            ToGerritRunListener listener = ToGerritRunListener.getInstance();
+            if (listener != null) {
+                listener.shutdown();
+            }
+        } catch (Exception e) {
+            logger.error("Error shutting down ToGerritRunListener notification executor", e);
+        }
+
+        // Shutdown Hazelcast first (before stopping servers)
+        if (HazelcastManager.isInitialized()) {
+            logger.info("Shutting down Hazelcast...");
+            try {
+                HazelcastManager.shutdown();
+                logger.info("Hazelcast shutdown complete");
+            } catch (Exception e) {
+                logger.error("Error shutting down Hazelcast", e);
+            }
+        }
+
         for (GerritServer s : servers) {
             s.stop();
         }

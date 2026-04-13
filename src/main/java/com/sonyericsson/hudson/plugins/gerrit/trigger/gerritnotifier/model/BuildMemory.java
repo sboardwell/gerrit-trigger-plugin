@@ -24,6 +24,7 @@
  */
 package com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model;
 
+import com.sonyericsson.hudson.plugins.gerrit.trigger.cluster.ClusterModeProvider;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.diagnostics.BuildMemoryReport;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.gerritnotifier.model.BuildMemory.MemoryImprint.Entry;
 import com.sonyericsson.hudson.plugins.gerrit.trigger.hudsontrigger.GerritCause;
@@ -51,10 +52,26 @@ import static com.sonyericsson.hudson.plugins.gerrit.trigger.utils.Logic.shouldS
 
 /**
  * Keeps track of what builds have been triggered and if all builds are done for specific events.
+ * <p>
+ * This is the local-mode implementation using in-memory TreeMap.
+ * For cluster mode, see {@link ClusterBuildMemory}.
  *
  * @author Robert Sandell &lt;robert.sandell@sonyericsson.com&gt;
  */
 public class BuildMemory {
+
+    /**
+     * Factory method to create the appropriate BuildMemory implementation.
+     * Returns ClusterBuildMemory if cluster mode is enabled, otherwise standard BuildMemory.
+     *
+     * @return BuildMemory instance (either local or cluster)
+     */
+    public static BuildMemory create() {
+        if (ClusterModeProvider.isClusterModeEnabled()) {
+            return new ClusterBuildMemory();
+        }
+        return new BuildMemory();
+    }
 
     /**
      * Compares GerritTriggeredEvents using the Object.hashCode() method. This ensures that every event received from
@@ -78,10 +95,15 @@ public class BuildMemory {
         }
     }
 
-    private TreeMap<GerritTriggeredEvent, MemoryImprint> memory =
+    private static final Logger logger = LoggerFactory.getLogger(BuildMemory.class);
+
+    /**
+     * Local mode storage.
+     */
+    protected TreeMap<GerritTriggeredEvent, MemoryImprint> memory =
             new TreeMap<GerritTriggeredEvent, MemoryImprint>(
                     new GerritTriggeredEventComparator());
-    private static final Logger logger = LoggerFactory.getLogger(BuildMemory.class);
+
 
     /**
      * Gets the memory of a specific event.
@@ -100,7 +122,7 @@ public class BuildMemory {
      * @return true if it is so.
      */
     public synchronized boolean isAllBuildsCompleted(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb != null) {
             return pb.isAllBuildsCompleted();
         } else {
@@ -115,7 +137,7 @@ public class BuildMemory {
      * @return the statistics.
      */
     public synchronized BuildsStartedStats getBuildsStartedStats(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb != null) {
             return pb.getBuildsStartedStats();
         } else {
@@ -132,7 +154,7 @@ public class BuildMemory {
      * @see MemoryImprint#getStatusReport()
      */
     public synchronized String getStatusReport(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb != null) {
             return pb.getStatusReport();
         } else {
@@ -147,7 +169,7 @@ public class BuildMemory {
      * @return true if it is so.
      */
     public synchronized boolean isAllBuildsStarted(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb != null) {
             return pb.isAllBuildsSet();
         } else {
@@ -334,7 +356,7 @@ public class BuildMemory {
      * @return true if so.
      */
     public synchronized boolean isTriggered(@NonNull GerritTriggeredEvent event, @NonNull Job project) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb == null) {
             return false;
         } else {
@@ -356,7 +378,7 @@ public class BuildMemory {
      * @return true if so.
      */
     public synchronized boolean isBuilding(GerritTriggeredEvent event, @NonNull Job project) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb == null) {
             return false;
         } else {
@@ -381,7 +403,7 @@ public class BuildMemory {
      * @return true if so.
      */
     public synchronized boolean isBuilding(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         return pb != null;
     }
 
@@ -392,7 +414,7 @@ public class BuildMemory {
      * @return the list of builds, or null if there is no memory.
      */
     public synchronized List<Run> getBuilds(GerritTriggeredEvent event) {
-        MemoryImprint pb = memory.get(event);
+        MemoryImprint pb = getMemoryImprint(event);
         if (pb != null) {
             List<Run> list = new LinkedList<Run>();
             for (Entry entry : pb.getEntries()) {
@@ -488,6 +510,7 @@ public class BuildMemory {
         }
         return report;
     }
+
 
     /**
      * A holder for all builds triggered by one event.
@@ -596,7 +619,7 @@ public class BuildMemory {
          * @param build          the build
          * @param buildCompleted if the build is finished.
          */
-        private synchronized void set(Job project, Run build, boolean buildCompleted) {
+        synchronized void set(Job project, Run build, boolean buildCompleted) {
             Entry entry = getEntry(project);
             if (entry == null) {
                 entry = new Entry(project, build);
@@ -675,7 +698,7 @@ public class BuildMemory {
          * @param project the project.
          * @return the entry or null if nothing is found.
          */
-        private Entry getEntry(@NonNull Job project) {
+        Entry getEntry(@NonNull Job project) {
             for (Entry entry : list) {
                 if (entry != null && project.equals(entry.getProject())) {
                     return entry;
@@ -973,7 +996,7 @@ public class BuildMemory {
              *
              * @param customUrl the URL.
              */
-            private void setCustomUrl(String customUrl) {
+            void setCustomUrl(String customUrl) {
                 this.customUrl = customUrl;
             }
 
@@ -991,7 +1014,7 @@ public class BuildMemory {
              *
              * @param unsuccessfulMessage the message.
              */
-            private void setUnsuccessfulMessage(String unsuccessfulMessage) {
+            void setUnsuccessfulMessage(String unsuccessfulMessage) {
                 this.unsuccessfulMessage = unsuccessfulMessage;
             }
 
@@ -1018,7 +1041,7 @@ public class BuildMemory {
              *
              * @param buildCompleted true if the build is completed.
              */
-            private void setBuildCompleted(boolean buildCompleted) {
+            void setBuildCompleted(boolean buildCompleted) {
                 this.buildCompleted = buildCompleted;
                 if (buildCompleted) {
                     this.completedTimestamp = System.currentTimeMillis();
@@ -1038,7 +1061,7 @@ public class BuildMemory {
              *
              * @param cancelled true if the build was cancelled while in the queue.
              */
-            private void setCancelled(boolean cancelled) {
+            void setCancelled(boolean cancelled) {
                 this.cancelled = cancelled;
             }
 

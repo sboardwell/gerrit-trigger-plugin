@@ -123,6 +123,11 @@ public final class EventListener implements GerritEventListener {
         }
         if (event instanceof GerritTriggeredEvent) {
             GerritTriggeredEvent triggeredEvent = (GerritTriggeredEvent)event;
+
+            // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+            // If this method is called, the replica has already successfully claimed the event
+            // So we can safely process it for this job
+
             synchronized (this) {
                 if (t.isInteresting(triggeredEvent)) {
                     logger.trace("The event is interesting.");
@@ -163,6 +168,11 @@ public final class EventListener implements GerritEventListener {
             // to just return now without processing the event.
             return;
         }
+
+        // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+        // If this method is called, the replica has already successfully claimed the event
+        // So we can safely process it for this job
+
         synchronized (this) {
             if (t.isInteresting(event)) {
                 logger.trace("The event is interesting.");
@@ -209,6 +219,11 @@ public final class EventListener implements GerritEventListener {
             // to just return now without processing the event.
             return;
         }
+
+        // Event claiming is now handled at the replica level in JenkinsAwareGerritHandler
+        // If this method is called, the replica has already successfully claimed the event
+        // So we can safely process it for this job
+
         synchronized (this) {
             if (t.isInteresting(event) && t.commentAddedMatch(event)) {
                 logger.trace("The event is interesting.");

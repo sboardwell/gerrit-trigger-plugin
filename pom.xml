@@ -67,6 +67,7 @@
         <surefire.rerunFailingTestsCount>3</surefire.rerunFailingTestsCount>
         <forkCount>0.5C</forkCount>
         <spotbugs.threshold>High</spotbugs.threshold>
+        <hazelcast.version>5.3.8</hazelcast.version>
     </properties>
 
     <dependencies>
@@ -228,6 +229,11 @@
         <dependency>
             <groupId>io.jenkins.plugins</groupId>
             <artifactId>caffeine-api</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.hazelcast</groupId>
+            <artifactId>hazelcast</artifactId>
+            <version>${hazelcast.version}</version>
         </dependency>
         <dependency>
             <artifactId>configuration-as-code</artifactId>

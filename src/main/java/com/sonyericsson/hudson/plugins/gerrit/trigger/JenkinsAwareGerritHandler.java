@@ -76,11 +76,11 @@ public class JenkinsAwareGerritHandler extends GerritHandler {
         }
 
         try (ACLContext ctx = ACL.as(ACL.SYSTEM)) {
-            // The read deal
+            // The real deal - notify all job listeners
             super.notifyListeners(event);
         }
 
-        // //Notify lifecycle listeners.
+        // Notify lifecycle listeners.
         if (event instanceof GerritEventLifecycle) {
             try {
                 ((GerritEventLifecycle)event).fireTriggerScanDone();
