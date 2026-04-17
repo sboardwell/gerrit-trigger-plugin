@@ -235,14 +235,44 @@ public final class EventListener implements GerritEventListener {
         }
 
         ChangeBasedEvent changeBasedEvent = (ChangeBasedEvent)event;
-        if (t.getBuildCancellationPolicy() != null && t.getBuildCancellationPolicy().isEnabled()) {
-            t.getRunningJobs(t.getJob()).cancelTriggeredJob(changeBasedEvent,
-                    t.getJob().getFullName(), t.getBuildCancellationPolicy());
+
+        // PHASE 2: Using BuildMemory for cancellation instead of RunningJobs
+        // OLD CODE (commented out for Phase 2 validation):
+        // if (t.getBuildCancellationPolicy() != null && t.getBuildCancellationPolicy().isEnabled()) {
+        //     t.getRunningJobs(t.getJob()).cancelTriggeredJob(changeBasedEvent,
+        //             t.getJob().getFullName(), t.getBuildCancellationPolicy());
+        // }
+        //
+        // IGerritHudsonTriggerConfig serverConfig = getServerConfig(event);
+        // if (serverConfig != null && (serverConfig.isGerritBuildCurrentPatchesOnly())) {
+        //     t.getRunningJobs(t.getJob()).scheduled(changeBasedEvent);
+        // }
+
+        // NEW CODE: Using BuildMemory
+        ToGerritRunListener listener = ToGerritRunListener.getInstance();
+        if (listener == null) {
+            logger.warn("ToGerritRunListener not available, cancellation skipped");
+            return;
         }
 
+        // Per-trigger cancellation policy
+        if (t.getBuildCancellationPolicy() != null && t.getBuildCancellationPolicy().isEnabled()) {
+            logger.debug("Cancelling builds for event {} using trigger policy", changeBasedEvent);
+            listener.getMemory().cancelTriggeredJob(
+                    changeBasedEvent,
+                    t.getBuildCancellationPolicy(),
+                    t,
+                    t.getJob());
+        }
+
+        // Server-wide cancellation policy
         IGerritHudsonTriggerConfig serverConfig = getServerConfig(event);
-        if (serverConfig != null && (serverConfig.isGerritBuildCurrentPatchesOnly())) {
-            t.getRunningJobs(t.getJob()).scheduled(changeBasedEvent);
+        if (serverConfig != null && serverConfig.isGerritBuildCurrentPatchesOnly()) {
+            logger.debug("Cancelling builds for event {} using server policy", changeBasedEvent);
+            listener.getMemory().scheduled(
+                    changeBasedEvent,
+                    t,
+                    t.getJob());
         }
     }
 

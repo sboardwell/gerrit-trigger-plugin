@@ -2257,7 +2257,7 @@ public class GerritTrigger extends Trigger<Job> {
      * @param runningChange the ongoing change.
      * @return true if so.
      */
-    protected boolean abortBecauseOfTopic(ChangeBasedEvent event,
+    public boolean abortBecauseOfTopic(ChangeBasedEvent event,
                                         BuildCancellationPolicy policy,
                                         ChangeBasedEvent runningChange) {
         String topicName = event.getChange().getTopic();
