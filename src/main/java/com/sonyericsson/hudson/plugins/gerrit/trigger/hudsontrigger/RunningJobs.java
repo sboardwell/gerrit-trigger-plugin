@@ -44,31 +44,42 @@ public class RunningJobs {
    private static final Logger logger = LoggerFactory.getLogger(RunningJobs.class);
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Constructor: embeds the trigger and it's underlying job into the tracked list.
     *
     * @param trigger - gerrit trigger that has multiple running jobs
     * @param job - underlying job of running build and triggers
     */
+   @Deprecated
    public RunningJobs(GerritTrigger trigger, Item job) {
        this.trigger = trigger;
        this.job = job;
    }
 
    /**
-     * @return the job
-     */
-    public Item getJob() {
-        return job;
-    }
+    * @deprecated since the memory was unifed into BuildMemory
+    *
+    * @return the job
+    */
+   @Deprecated
+   public Item getJob() {
+       return job;
+   }
 
     /**
+     * @deprecated since the memory was unifed into BuildMemory
+     *
      * @param job the job to set
      */
+    @Deprecated
     public void setJob(Item job) {
         this.job = job;
     }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Called when trigger has cancellation policy associated with it.
     *
     *
@@ -76,6 +87,7 @@ public class RunningJobs {
     * @param jobName job name to match for specific cancellation
     * @param policy policy to decide cancelling build or not
     */
+   @Deprecated
    public void cancelTriggeredJob(ChangeBasedEvent event, String jobName, BuildCancellationPolicy policy)
    {
        if (policy == null || !policy.isEnabled()) {
@@ -90,12 +102,15 @@ public class RunningJobs {
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Checks scheduled job and cancels current jobs if needed.
     * I.e. cancelling the old build if configured to do so and removing and storing any references.
     * Only used by Server wide policy
     *
     * @param event the event triggering a new build.
     */
+   @Deprecated
    public void scheduled(ChangeBasedEvent event) {
        IGerritHudsonTriggerConfig serverConfig = getServerConfig(event);
        if (serverConfig == null) {
@@ -115,11 +130,13 @@ public class RunningJobs {
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
     *
     * @param event event to check for
     * @param policy policy to determine cancellation of build for
     * @param jobName job name parameter to consider; if null, assumes all builds
     */
+   @Deprecated
    private void cancelOutDatedEvents(ChangeBasedEvent event, BuildCancellationPolicy policy, String jobName)
    {
        List<ChangeBasedEvent> outdatedEvents = new ArrayList<>();
@@ -165,6 +182,8 @@ public class RunningJobs {
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Determines if event should be ignored due to policy
     *
     * @param event event being evaluated
@@ -172,6 +191,7 @@ public class RunningJobs {
     * @param runningChangeBasedEvent existing event to compare against
     * @return true if event should be ignored for cancellation
     */
+   @Deprecated
    private boolean shouldIgnoreEvent(ChangeBasedEvent event,
            BuildCancellationPolicy policy, ChangeBasedEvent runningChangeBasedEvent)
    {
@@ -216,6 +236,8 @@ public class RunningJobs {
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Tries to cancel any job, which was triggered by the given change event.
     * <p>
     * Since the event is always noted in the build cause, it is easy to
@@ -232,6 +254,7 @@ public class RunningJobs {
     * @param jobName  job name to match on.
     * @param cause The cause of the build interruption.
     */
+   @Deprecated
    private void cancelMatchingJobs(GerritTriggeredEvent event, String jobName, CauseOfInterruption cause) {
        try {
            if (!(this.job instanceof Queue.Task)) {
@@ -279,6 +302,8 @@ public class RunningJobs {
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Checks if any of the given causes references the given event.
     *
     * @param event The event to check for. Checks for <i>identity</i>, not
@@ -286,6 +311,7 @@ public class RunningJobs {
     * @param causes the list of causes. Only {@link GerritCause}s are considered.
     * @return true if the list of causes contains a {@link GerritCause}.
     */
+   @Deprecated
    private boolean checkCausedByGerrit(GerritTriggeredEvent event, Collection<Cause> causes) {
        for (Cause c : causes) {
            if (!(c instanceof GerritCause)) {
@@ -300,20 +326,26 @@ public class RunningJobs {
    }
 
     /**
+     * @deprecated since the memory was unifed into BuildMemory
+     *
      * Adds the event to the running jobs.
      *
      * @param event The ChangeBasedEvent.
      */
+   @Deprecated
    public void add(ChangeBasedEvent event) {
        runningJobs.add(event);
    }
 
    /**
+    * @deprecated since the memory was unifed into BuildMemory
+    *
     * Removes any reference to the current build for this change.
     *
     * @param event the event which started the build we want to remove.
     * @return true if event was still running.
     */
+   @Deprecated
    public boolean remove(ChangeBasedEvent event) {
        logger.debug("Removing future job associated with " + event.getChange().getId());
        return runningJobs.remove(event);
