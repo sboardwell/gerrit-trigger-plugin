@@ -236,19 +236,6 @@ public final class EventListener implements GerritEventListener {
 
         ChangeBasedEvent changeBasedEvent = (ChangeBasedEvent)event;
 
-        // PHASE 2: Using BuildMemory for cancellation instead of RunningJobs
-        // OLD CODE (commented out for Phase 2 validation):
-        // if (t.getBuildCancellationPolicy() != null && t.getBuildCancellationPolicy().isEnabled()) {
-        //     t.getRunningJobs(t.getJob()).cancelTriggeredJob(changeBasedEvent,
-        //             t.getJob().getFullName(), t.getBuildCancellationPolicy());
-        // }
-        //
-        // IGerritHudsonTriggerConfig serverConfig = getServerConfig(event);
-        // if (serverConfig != null && (serverConfig.isGerritBuildCurrentPatchesOnly())) {
-        //     t.getRunningJobs(t.getJob()).scheduled(changeBasedEvent);
-        // }
-
-        // NEW CODE: Using BuildMemory
         ToGerritRunListener listener = ToGerritRunListener.getInstance();
         if (listener == null) {
             logger.warn("ToGerritRunListener not available, cancellation skipped");
