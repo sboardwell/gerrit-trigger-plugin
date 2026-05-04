@@ -112,8 +112,6 @@ public class GerritTrigger extends Trigger<Job> {
     //! projectListIsReady waiting limit to not block event listener
     //! so the queue won't grow in case of dynamic config fetch failure
     private static final int DYNAMIC_CONFIG_TIMEOUT_S = 10;
-    //! Association between patches and the jobs that we're running for them
-    private transient RunningJobs runningJobs = new RunningJobs(this, this.job);
     //! This latch will be used to signal that the project list is ready for use.
     //! For static configuration, this will be ready immediately.
     //! For dynamic configuration, this will be ready after the first time that
@@ -770,34 +768,16 @@ public class GerritTrigger extends Trigger<Job> {
     }
 
     /**
-     * Gives you {@link #runningJobs}. It makes sure that the reference is not null.
-     *
-     * @param job - job that calling event trigger is attached to
-     * @return the store of running jobs.
-     */
-    /*package*/ synchronized RunningJobs getRunningJobs(Job job) {
-        if (runningJobs == null) {
-            runningJobs = new RunningJobs(this, this.job);
-        } else {
-            runningJobs.setJob(job);
-        }
-        return runningJobs;
-    }
-
-    /**
      * Used to inform the server that the builds for a job have ended. This allows us to clean up our list of what jobs
      * we're running.
      *
      * @param event the event.
      */
     public void notifyBuildEnded(GerritTriggeredEvent event) {
-        if (event instanceof ChangeBasedEvent) {
-            IGerritHudsonTriggerConfig serverConfig = getServerConfig(event);
-            if ((serverConfig != null && serverConfig.isGerritBuildCurrentPatchesOnly())
-                    || (this.getBuildCancellationPolicy() != null && this.getBuildCancellationPolicy().isEnabled())) {
-                getRunningJobs(this.job).remove((ChangeBasedEvent)event);
-            }
-        }
+        // NO-OP: Build lifecycle tracking has been migrated to BuildMemory
+        // BuildMemory handles completion via onCompleted() → BuildMemory.completed()
+        // Events are marked as completed/cancelled during the cancellation process
+        // The old RunningJobs.remove() is no longer needed
     }
 
     /**
@@ -1135,14 +1115,18 @@ public class GerritTrigger extends Trigger<Job> {
             return false;
         }
 
-        ToGerritRunListener listener = ToGerritRunListener.getInstance();
-        if (listener != null) {
-            if (listener.isProjectTriggeredAndIncomplete(job, event)) {
-                logger.trace("Already triggered and incomplete.");
-                return false;
-            } else if (listener.isTriggered(job, event)) {
-                logger.trace("Already triggered.");
-                return false;
+        // In silent mode, BuildMemory is used only for cancellation tracking, not lifecycle
+        // So we should NOT block duplicate events based on BuildMemory state in silent mode
+        if (!isSilentMode()) {
+            ToGerritRunListener listener = ToGerritRunListener.getInstance();
+            if (listener != null) {
+                if (listener.isProjectTriggeredAndIncomplete(job, event)) {
+                    logger.trace("Already triggered and incomplete.");
+                    return false;
+                } else if (listener.isTriggered(job, event)) {
+                    logger.trace("Already triggered.");
+                    return false;
+                }
             }
         }
 
@@ -2257,7 +2241,7 @@ public class GerritTrigger extends Trigger<Job> {
      * @param runningChange the ongoing change.
      * @return true if so.
      */
-    protected boolean abortBecauseOfTopic(ChangeBasedEvent event,
+    public boolean abortBecauseOfTopic(ChangeBasedEvent event,
                                         BuildCancellationPolicy policy,
                                         ChangeBasedEvent runningChange) {
         String topicName = event.getChange().getTopic();
